@@ -69,8 +69,14 @@
     [].forEach.call(document.querySelectorAll(".cnav"), function (a) { a.classList.toggle("active", a.dataset.id === id); });
   }
 
+  /* 手機:☰ 開關側欄抽屜 */
+  var sidebar = document.getElementById("sidebar"), menuBtn = document.getElementById("menu-btn");
+  function setMenu(open) { sidebar.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); }
+  menuBtn.addEventListener("click", function () { setMenu(!sidebar.classList.contains("open")); });
+
   /* ---------- routing ---------- */
   function route() {
+    setMenu(false);
     if (search.value.trim().length >= 2) return;
     var m = location.hash.match(/^#\/c\/([^/]+)(?:\/(\w+))?(?:\/(\d+))?/);
     if (m) renderCourse(decodeURIComponent(m[1]), m[2] || "steps", m[3] ? parseInt(m[3], 10) : 0);

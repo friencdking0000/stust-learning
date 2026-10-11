@@ -10,11 +10,16 @@
 <body>
 <div id="app">
   <aside id="sidebar">
-    <a class="brand" href="#/">📚 stustclass<span class="ver">互動學習網站 v3</span></a>
-    <input id="search" type="search" placeholder="🔍 搜尋筆記與例題…" autocomplete="off">
-    <div class="textsize">字體 <button id="fs-dn" title="縮小">A−</button><button id="fs-rs" title="預設">A</button><button id="fs-up" title="放大">A+</button></div>
-    <nav id="course-nav"></nav>
-    <div class="side-foot">A→F 流程產出 · 互動學習<br><span id="gen"></span></div>
+    <div class="side-top">
+      <a class="brand" href="#/">📚 stustclass<span class="ver">互動學習網站 v3</span></a>
+      <button id="menu-btn" aria-label="選單" aria-expanded="false">☰</button>
+    </div>
+    <div id="side-panel">
+      <input id="search" type="search" placeholder="🔍 搜尋筆記與例題…" autocomplete="off">
+      <div class="textsize">字體 <button id="fs-dn" title="縮小">A−</button><button id="fs-rs" title="預設">A</button><button id="fs-up" title="放大">A+</button></div>
+      <nav id="course-nav"></nav>
+      <div class="side-foot">A→F 流程產出 · 互動學習<br><span id="gen"></span></div>
+    </div>
   </aside>
   <main id="main"></main>
 </div>
