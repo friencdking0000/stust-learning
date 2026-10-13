@@ -326,3 +326,36 @@ a.btn.ghost:hover{background:#e0e7ff}
   .practice-cta{flex-wrap:wrap}
   .practice-cta .pc-go{width:100%;text-align:center}
 }
+
+/* ---- 🔬 我的論文(私人,只在本機) ---- */
+.th-head{background:linear-gradient(90deg,#fdf4ff,#eef2ff);border:1px solid #e9d5ff;border-radius:12px;padding:14px 18px;margin:6px 0 12px}
+.th-head h2{margin:6px 0 4px;font-size:20px}
+.th-lock{font-size:12px;color:#7e22ce}
+.th-ov{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:10px 16px}
+.th-toc{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.th-toc a{font-size:12.5px;background:#fff;border:1px solid #ddd6fe;border-radius:999px;padding:4px 10px;color:#5b21b6;text-decoration:none}
+.th-toc a:hover{background:#f5f3ff}
+.th-diff{background:#fffbeb;border-color:#fde68a}
+.th-diff summary{color:#b45309}
+.th-sec{background:#fff;border:1px solid #e2e8f0;border-left:4px solid #a855f7;border-radius:12px;padding:12px 16px;margin:14px 0;scroll-margin-top:12px;transition:box-shadow .3s}
+.th-sec.flash{box-shadow:0 0 0 3px #d8b4fe}
+.th-st{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:16px}
+.th-ref{font-size:12px;background:#f3e8ff;color:#6b21a8;border-radius:6px;padding:2px 8px;font-weight:600}
+.th-inf{font-size:11px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:1px 6px;margin-left:6px;white-space:nowrap}
+.th-sum{color:#334155;margin:8px 0}
+.th-f{margin:10px 0}
+.th-use{background:#faf5ff;border:1px dashed #d8b4fe;border-radius:8px;padding:6px 10px;margin-top:-4px;font-size:13.5px}
+.th-sym{margin:10px 0}
+.th-box{border-radius:10px;padding:8px 14px;margin:10px 0}
+.th-box .markdown-body{font-size:14px}
+.th-bt{font-weight:600;font-size:13.5px;margin-bottom:4px}
+.th-phy{background:#f0fdf4;border:1px solid #bbf7d0}
+.th-chk{background:#eff6ff;border:1px solid #bfdbfe}
+.th-q{background:#fff7ed;border:1px solid #fed7aa}
+.th-link{margin:10px 0 6px;padding:10px 14px;border-radius:12px;background:#faf5ff;border:1px solid #e9d5ff}
+.th-link a{display:block;padding:4px 0;color:#5b21b6;text-decoration:none;font-size:14px}
+.th-link a:hover{text-decoration:underline}
+@media (max-width:820px){
+  .th-sec{padding:10px 12px}
+  .th-sym,.th-diff table{display:block;overflow-x:auto}
+}

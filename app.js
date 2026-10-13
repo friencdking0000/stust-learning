@@ -1,6 +1,8 @@
 (function () {
   "use strict";
   var D = window.SITE_DATA || { courses: [] };
+  // 私人論文對照:只有本機 site/private.js 存在時才有(gitignore、不發布)
+  var PRIV = window.PRIVATE || null;
   var main = document.getElementById("main");
   var nav = document.getElementById("course-nav");
   var search = document.getElementById("search");
@@ -19,9 +21,87 @@
     if (html === null) html = "<pre>" + esc(s) + "</pre>";
     return html.replace(/@@MATH(\d+)@@/g, function (_, i) { return esc(maths[+i]); });
   }
+  // MathJax 排版(效能):全部排隊執行、每批約 40 個公式後讓出主執行緒,大頁面不再一次凍住數秒;
+  // 帶 tex2jax_ignore 的區塊先跳過,等 typesetLazy() 捲到附近才排
+  var mjq = Promise.resolve();
+  function mjReady() { return !!(window.MathJax && MathJax.typesetPromise); }
+  function whenMJ() {
+    if (mjReady()) return Promise.resolve();
+    return new Promise(function (r) {
+      var t = setInterval(function () { if (mjReady()) { clearInterval(t); r(); } }, 100);
+      setTimeout(function () { clearInterval(t); r(); }, 20000);
+    });
+  }
+  // 暖機:首頁閒置時先排一個隱藏公式,把 MathJax 第一次啟動的成本(低階手機約 1 秒)移出點課程的那一刻
+  whenMJ().then(function () {
+    var go = function () {
+      if (!mjReady()) return;
+      var w = document.createElement("div");
+      w.style.cssText = "position:absolute;left:-9999px;top:0;visibility:hidden";
+      w.textContent = "$\\frac{1}{2}\\omega_n^2\\zeta\\sigma\\lambda\\Omega\\sqrt{x}\\sum_{i=1}^{N} e^{-j\\theta}\\le\\Delta f$";
+      document.body.appendChild(w);
+      typeset(w).then(function () { w.remove(); });
+    };
+    if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 3000 }); else setTimeout(go, 800);
+  });
+  function mcount(el) { return (el.textContent.match(/\$|\\\(|\\\[/g) || []).length; }
+  function directText(el) { for (var n = el.firstChild; n; n = n.nextSibling) if (n.nodeType === 3 && /\S/.test(n.nodeValue)) return true; return false; }
+  function mathUnits(el, out) {
+    if (el.classList && el.classList.contains("tex2jax_ignore")) return out;
+    var k = mcount(el);
+    if (!k) return out;
+    if (k > 60 && el.children.length && !directText(el)) [].forEach.call(el.children, function (c) { mathUnits(c, out); });
+    else out.push(el);
+    return out;
+  }
   function typeset(el) {
-    try { if (el && window.MathJax && MathJax.typesetPromise) return MathJax.typesetPromise([el]).catch(function () {}); } catch (e) {}
-    return Promise.resolve();
+    if (!el) return Promise.resolve();
+    mjq = mjq.then(whenMJ).then(function () {
+      if (!mjReady() || !el.isConnected) return;
+      var units = mathUnits(el, []), i = 0;
+      function next() {
+        if (i >= units.length || !el.isConnected) return;
+        var batch = [], n = 0;
+        while (i < units.length && n < 40) { var u = units[i++]; batch.push(u); n += mcount(u); }
+        return MathJax.typesetPromise(batch).then(function () { return new Promise(function (r) { setTimeout(r, 0); }); }).then(next);
+      }
+      return next();
+    }).catch(function () {});
+    return mjq;
+  }
+  // 只排版捲到畫面附近的區塊(其餘標 tex2jax_ignore 先跳過);after(el) 在該區塊排完後呼叫
+  function typesetLazy(root, sel, after) {
+    var els = [].slice.call(root.querySelectorAll(sel));
+    if (!els.length || !("IntersectionObserver" in window))
+      return typeset(root).then(function () { if (after) els.forEach(after); });
+    els.forEach(function (e) { e.classList.add("tex2jax_ignore"); });
+    var io = new IntersectionObserver(function (ents) {
+      ents.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var t = en.target; io.unobserve(t); t.classList.remove("tex2jax_ignore");
+        typeset(t).then(function () { if (after) after(t); });
+      });
+    }, { rootMargin: "600px 0px" });
+    els.forEach(function (e) { io.observe(e); });
+    return typeset(root);
+  }
+  // 收合區塊:內容用 fn() 產生,第一次展開才組 HTML、放進頁面並排版
+  var LAZY = {}, lazySeq = 0;
+  function lazyDetails(cls, summary, fn) {
+    var id = "lz" + (++lazySeq); LAZY[id] = fn;
+    return '<details class="' + cls + '" data-lazy="' + id + '"><summary>' + summary + "</summary></details>";
+  }
+  function bindLazyDetails(root, sel, onFill) {
+    [].forEach.call(root.querySelectorAll("details[data-lazy]"), function (d) {
+      d.addEventListener("toggle", function () {
+        var fn = LAZY[d.dataset.lazy];
+        if (!d.open || !fn) return;
+        delete LAZY[d.dataset.lazy];
+        d.insertAdjacentHTML("beforeend", fn());
+        if (onFill) onFill(d);
+        typesetLazy(d, sel);
+      });
+    });
   }
   function attr(s) { return esc(s).replace(/"/g, "&quot;"); }
   function badge(c) { return '<span class="badge s-' + c.status + '">' + c.completeness + "</span>"; }
@@ -110,6 +190,7 @@
     if (c.quiz) tabs.push(["quiz", "❓ 測驗"]);
     if (c.embeds && c.embeds.length) tabs.push(["embed", "🧩 互動工具"]);
     if (c.notes && c.notes.length) tabs.push(["notes", "📄 筆記"]);
+    if (thesisFor(c)) tabs.push(["thesis", "🔬 我的論文"]);
     
     main.innerHTML =
       '<header class="chead"><div class="crumb"><a href="#/">首頁</a> / ' + c.title + "</div>" +
@@ -124,6 +205,7 @@
       else if (t === "quiz") { tabc.innerHTML = tabQuiz(c); bindQuiz(c); }
       else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c, /\/probs\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "embed") tabc.innerHTML = tabEmbed(c);
+      else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); typesetLazy(tabc, ".th-sec"); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "mat") tabc.innerHTML = tabMat(c);
       else { tabc.innerHTML = tabSteps(c); bindSteps(c, arg); typeset(tabc); }
     }
@@ -151,11 +233,20 @@
     c.steps.forEach(function (s) { nF += (s.formulas || []).length; });
     var h = '<div class="course-head"><p class="lead">' + esc(c.summary) + "</p>" +
       '<div class="progtxt" id="stepprog">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + '%)</div><div class="progwrap"><div class="progbar" id="stepbar" style="width:' + pr.pct + '%"></div></div>';
-    if (nF) h += '<details class="cheat"><summary>📐 公式速查（' + nF + ' 式，附符號說明）</summary>' +
-      c.steps.map(function (s) {
-        if (!s.formulas || !s.formulas.length) return "";
-        return '<div class="fgroup"><div class="fg-t">第 ' + s.step + " 章 · " + esc(s.title) + "</div>" + s.formulas.map(formulaHtml).join("") + "</div>";
-      }).join("") + "</details>" + symbolIndexHtml(c);
+    if (nF) {
+      h += lazyDetails("cheat", "📐 公式速查（" + nF + " 式，附符號說明）", function () {
+        return c.steps.map(function (s) {
+          if (!s.formulas || !s.formulas.length) return "";
+          return '<div class="fgroup"><div class="fg-t">第 ' + s.step + " 章 · " + esc(s.title) + "</div>" + s.formulas.map(formulaHtml).join("") + "</div>";
+        }).join("");
+      });
+      var nSym = {};
+      c.steps.forEach(function (s) { (s.formulas || []).forEach(function (f) { (f.vars || []).forEach(function (v) { nSym[String(v.s).replace(/\s+/g, "")] = 1; }); }); });
+      if (Object.keys(nSym).length) h += lazyDetails("cheat symidx", "🔤 全課符號總表（" + Object.keys(nSym).length + " 個符號）", function () {
+        var full = symbolIndexHtml(c);
+        return full.slice(full.indexOf("</summary>") + 10, full.lastIndexOf("</details>"));
+      });
+    }
     h += "</div>";
     h += '<div class="steps">' + c.steps.map(function (s, i) {
       var done = isDone(c.id, i);
@@ -181,7 +272,7 @@
   function inl(t) { return md(t).replace(/^<p>|<\/p>\s*$/g, ""); }
   // 公式 + 白話 + 符號說明表
   function formulaHtml(f) {
-    var h = '<div class="formula"><span class="flabel">' + esc(f.label) + '</span><span class="feq">\\[' + f.tex + '\\]</span>';
+    var h = '<div class="formula"><span class="flabel">' + esc(f.label) + '</span><span class="feq">\\[' + esc(f.tex) + '\\]</span>';  // esc:TeX 裡的 < 會被當成 HTML 標籤
     if (f.plain) h += '<div class="fplain">💬 ' + inl(f.plain) + "</div>";
     if (f.vars && f.vars.length) h += '<table class="fvars"><tbody>' + f.vars.map(function (v) {
       return '<tr><td class="fs">\\(' + esc(v.s) + '\\)</td><td class="fname">' + inl(v.name || "") +
@@ -227,6 +318,79 @@
         }).join("") + "</tbody>";
       }).join("") + "</table></details>";
   }
+  /* ---- 🔬 我的論文(私人,只在本機) ---- */
+  function thesisFor(c) { return PRIV && PRIV.courses && c ? PRIV.courses[c.id] || null : null; }
+  function findFormula(c, st, label) {
+    var s = c.steps[st];
+    if (!s) return null;
+    for (var i = 0; i < (s.formulas || []).length; i++) if (s.formulas[i].label === label) return s.formulas[i];
+    return null;
+  }
+  function stepChip(c, si) {
+    var s = c.steps[si];
+    return s ? '<a class="chip link" href="#/c/' + encodeURIComponent(c.id) + "/steps/" + si + '">第 ' + s.step + " 章 · " + esc(s.title) + "</a>" : "";
+  }
+  function inferredTag(x) { return x ? '<span class="th-inf" title="論文沒有明寫,由對照者推定">推定</span>' : ""; }
+  function tabThesis(c) {
+    var P = thesisFor(c), LB = P.labels || {}, h = "";
+    h += '<div class="th-head"><div class="th-lock">🔒 只在本機顯示(private.js 已排除在 GitHub 與公開網站之外)</div>' +
+      "<h2>" + inl(P.title || "我的論文") + "</h2>" + (P.oneLine ? '<p class="sub">' + inl(P.oneLine) + "</p>" : "") + "</div>";
+    if (P.overview) h += '<div class="markdown-body th-ov">' + md(P.overview, true) + "</div>";
+    var secs = P.sections || [];
+    if (secs.length) h += '<div class="th-toc">' + secs.map(function (x, i) {
+      return '<a href="#/c/' + encodeURIComponent(c.id) + "/thesis/" + i + '">' + esc(x.thesisRef || x.id) + " · " + esc(x.concept || "") + "</a>";
+    }).join("") + "</div>";
+    if (P.symbolDiffs && P.symbolDiffs.length) {
+      h += '<details class="cheat th-diff" open><summary>⚠️ 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
+        '<table class="fvars"><thead><tr><th>論文</th><th>課程</th><th>意思</th><th>出現在</th></tr></thead><tbody>' +
+        P.symbolDiffs.map(function (d) {
+          return "<tr><td>" + inl(d.thesis) + "</td><td>" + inl(d.course) + "</td><td>" + inl(d.meaning || "") + "</td><td>" + inl(d.where || "") + "</td></tr>";
+        }).join("") + "</tbody></table></details>";
+    }
+    secs.forEach(function (x, i) {
+      h += '<section class="th-sec" id="th-' + i + '"><div class="th-st"><span class="th-ref">' + esc(x.thesisRef || x.id) + "</span>" +
+        "<b>" + inl(x.concept || "") + "</b>" + inferredTag(x.inferred) + "</div>";
+      if (x.summary) h += '<p class="th-sum">' + inl(x.summary) + "</p>";
+      if (x.steps && x.steps.length) h += '<div class="chips">📚 對應課程:' + x.steps.map(function (si) { return stepChip(c, si); }).join("") + "</div>";
+      else h += '<p class="note">此節不在本課範圍。</p>';
+      (x.formulas || []).forEach(function (fr) {
+        var f = findFormula(c, fr.step, fr.label);
+        if (!f) return;
+        h += '<div class="th-f">' + formulaHtml(f) + (fr.use ? '<div class="th-use">📝 <b>在你的論文裡:</b>' + inl(fr.use) + "</div>" : "") + "</div>";
+      });
+      if (x.symbols && x.symbols.length) {
+        h += '<table class="fvars th-sym"><thead><tr><th>符號</th><th>課程意思</th><th>在你的論文裡</th><th>數值</th></tr></thead><tbody>' +
+          x.symbols.map(function (v) {
+            return '<tr><td class="fs">' + inl(v.s) + "</td><td>" + inl(v.course || "") + "</td><td>" + inl(v.thesis || "") + inferredTag(v.inferred) +
+              (v.diff ? '<div class="fnote">⚠️ ' + inl(v.diff) + "</div>" : "") + "</td><td>" + inl(v.value || "—") + (v.unit ? " " + esc(v.unit) : "") + "</td></tr>";
+          }).join("") + "</tbody></table>";
+      }
+      if (x.physics) h += '<div class="th-box th-phy"><div class="th-bt">' + esc(LB.physics || "🧠 物理意義(白話)") + '</div><div class="markdown-body">' + md(x.physics, true) + "</div></div>";
+      if (x.check) h += '<div class="th-box th-chk"><div class="th-bt">' + esc(LB.check || "✅ 數值合不合理") + '</div><div class="markdown-body">' + md(x.check, true) + "</div></div>";
+      if (x.notes) h += '<p class="note">🔎 ' + inl(x.notes) + "</p>";
+      h += "</section>";
+    });
+    if (P.openQuestions && P.openQuestions.length) h += '<div class="th-box th-q"><div class="th-bt">❓ 值得再確認的地方</div><ul>' +
+      P.openQuestions.map(function (q) { return "<li>" + inl(q) + "</li>"; }).join("") + "</ul></div>";
+    return h;
+  }
+  function focusThesis(i) {
+    if (i == null) return;
+    var el = document.getElementById("th-" + i);
+    if (!el) return;
+    setTimeout(function () { el.scrollIntoView({ block: "start" }); el.classList.add("flash"); setTimeout(function () { el.classList.remove("flash"); }, 1600); }, 60);
+  }
+  // 每章結尾:這章對應論文哪裡
+  function thesisLinkHtml(c, si) {
+    var P = thesisFor(c);
+    if (!P) return "";
+    var hit = [];
+    (P.sections || []).forEach(function (x, i) { if ((x.steps || []).indexOf(si) >= 0) hit.push([x, i]); });
+    if (!hit.length) return "";
+    return '<div class="th-link"><div class="th-bt">🔬 這章對應你論文的:</div>' + hit.map(function (p) {
+      return '<a href="#/c/' + encodeURIComponent(c.id) + "/thesis/" + p[1] + '"><span class="th-ref">' + esc(p[0].thesisRef || p[0].id) + "</span> " + inl(p[0].concept || "") + " →</a>";
+    }).join("") + "</div>";
+  }
   // 步驟結尾:去例題分頁第 N 章練習
   function practiceCtaHtml(c, s, si) {
     if (!s.problems || !s.problems.length) return "";
@@ -257,16 +421,19 @@
       h += "</div>";
     }
     h += practiceCtaHtml(c, s, si);
+    h += thesisLinkHtml(c, si);
     h += '<div class="stepnav">' + (si > 0 ? '<button class="btn ghost" data-go="' + (si - 1) + '">← 上一步</button>' : "<span></span>") +
       '<button class="btn" data-finish="' + si + '">✓ 完成這步' + (si < c.steps.length - 1 ? "，下一步 →" : "") + "</button></div>";
     return h;
   }
   function bindSteps(c, openIdx) {
     var cont = main.querySelector(".steps"); if (!cont) return;
-    var sq = main.querySelector(".sym-q");
-    if (sq) sq.addEventListener("input", function () {
-      var q = sq.value.trim().toLowerCase();
-      [].forEach.call(main.querySelectorAll(".symidx tbody"), function (tb) { tb.style.display = !q || tb.getAttribute("data-q").indexOf(q) >= 0 ? "" : "none"; });
+    bindLazyDetails(main.querySelector(".course-head"), ".formula, .symidx tbody", function (d) {
+      var sq = d.querySelector(".sym-q");
+      if (sq) sq.addEventListener("input", function () {
+        var q = sq.value.trim().toLowerCase();
+        [].forEach.call(d.querySelectorAll("tbody"), function (tb) { tb.style.display = !q || tb.getAttribute("data-q").indexOf(q) >= 0 ? "" : "none"; });
+      });
     });
     function refreshProg() {
       var pr = courseProg(c);
@@ -371,18 +538,23 @@
       '<span class="pai"><button class="pbtn ai" data-act="claude">🤖 問 Claude</button>' +
       '<button class="pbtn ai" data-act="chatgpt">🤖 問 ChatGPT</button>' +
       '<button class="pbtn ghost" data-act="copy" title="複製給 AI 的提示詞">📋</button></span></div>' +
-      (p.plain ? '<div class="prob-plain hidden">🗣 ' + md(p.plain, true) + "</div>" : "") +
+      (p.plain ? '<div class="prob-plain hidden"></div>' : "") +
       '<ol class="prob-hints"></ol>' +
       '<div class="prob-orig hidden">' + (p.img ? '<img loading="lazy" src="' + attr(p.img) + '" alt="原題頁">' : "") +
       (p.pdf ? '<a class="btn ghost" href="' + attr(p.pdf) + '" target="_blank">↗ 開啟原 PDF 該頁</a>' : "") + "</div>" +
-      '<div class="prob-sol hidden"><div class="markdown-body">' + md(p.solution, true) + "</div>";
+      '<div class="prob-sol hidden"></div></div>';
+    return h;
+  }
+  // 詳解內容(點「專業詳解」才產生,減少頁面元素)
+  function probSolHtml(p) {
+    var h = '<div class="markdown-body">' + md(p.solution, true) + "</div>";
     if (p.answer) h += '<div class="prob-ans">✅ <b>答案</b>　' + md(p.answer).replace(/^<p>|<\/p>\s*$/g, "") + "</div>";
     if (p.pitfalls && p.pitfalls.length) h += '<div class="prob-pit"><b>⚠️ 常見錯誤</b><ul>' + p.pitfalls.map(function (x) { return "<li>" + md(x).replace(/^<p>|<\/p>\s*$/g, "") + "</li>"; }).join("") + "</ul></div>";
     if (p.notes && p.notes.length) h += '<div class="prob-notes"><b>📖 術語註釋</b><dl>' + p.notes.map(function (n) {
       return "<dt>" + esc(n.term) + (n.url ? ' <a href="' + attr(n.url) + '" target="_blank" rel="noopener">↗</a>' : "") + "</dt><dd>" + md(n.def).replace(/^<p>|<\/p>\s*$/g, "") + "</dd>";
     }).join("") + "</dl></div>";
     if (p.links && p.links.length) h += '<div class="prob-links"><b>🔗 延伸閱讀</b> ' + linkList(p.links) + "</div>";
-    return h + "</div></div>";
+    return h;
   }
   function stripMd(t) { return String(t || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "[圖]").replace(/[*_`>#]/g, "").trim(); }
   function aiPrompt(c, p, si) {
@@ -416,14 +588,14 @@
       var card = b.closest(".prob"), f = findProblem(c, card.dataset.pid); if (!f) return;
       var p = f.p, act = b.dataset.act;
       function tog(sel) { var el = card.querySelector(sel); if (!el) return null; el.classList.toggle("hidden"); b.classList.toggle("on", !el.classList.contains("hidden")); return el; }
-      if (act === "plain") { var pl = tog(".prob-plain"); if (pl) typeset(pl); }
+      if (act === "plain") { var pl = tog(".prob-plain"); if (pl && !pl.innerHTML) { pl.innerHTML = "🗣 " + md(p.plain, true); typeset(pl); } }
       else if (act === "hint") {
         var ol = card.querySelector(".prob-hints"), n = ol.children.length, hs = p.hints || [];
         if (n < hs.length) { var li = document.createElement("li"); li.innerHTML = md(hs[n]).replace(/^<p>|<\/p>\s*$/g, ""); ol.appendChild(li); typeset(li); n++; }
         b.querySelector(".hcnt").textContent = n + "/" + hs.length;
         if (n >= hs.length) b.classList.add("on");
       }
-      else if (act === "sol") { var so = tog(".prob-sol"); if (so && !so._ts) { so._ts = true; typeset(so); } }
+      else if (act === "sol") { var so = tog(".prob-sol"); if (so && !so.innerHTML) { so.innerHTML = probSolHtml(p); typeset(so).then(function () { annotateTerms(so.querySelector(".markdown-body"), c); }); } }
       else if (act === "orig") tog(".prob-orig");
       else if (act === "claude" || act === "chatgpt") askAI(act, c, p, f.si);
       else if (act === "copy") copyText(aiPrompt(c, p, f.si), b);
@@ -478,7 +650,7 @@
     }
     ["#pf-step", "#pf-lv", "#pf-todo"].forEach(function (s) { $(s).addEventListener("change", apply); });
     if (si !== null && si !== undefined && c.steps[si] && c.steps[si].problems && c.steps[si].problems.length) { $("#pf-step").value = String(si); apply(); }
-    typeset(list).then(function () { annotateTerms(list, c); });
+    typesetLazy(list, ".prob", function (card) { annotateTerms(card.querySelector(".prob-q"), c); });
   }
 
   /* ---- 術語自動註解:筆記中每個術語第一次出現 → 虛線底 + 浮動說明 + 外部連結 ---- */
