@@ -106,7 +106,7 @@
     var c = byId(id); if (!c) return renderHome();
     var tabs = [["steps", "📚 學習路徑"]];
     var np = allProblems(c).length;
-    if (np) tabs.push(["probs", "🎯 題庫（" + np + "）"]);
+    if (np) tabs.push(["probs", "🎯 例題練習（" + np + "）"]);
     if (c.quiz) tabs.push(["quiz", "❓ 測驗"]);
     if (c.embeds && c.embeds.length) tabs.push(["embed", "🧩 互動工具"]);
     if (c.notes && c.notes.length) tabs.push(["notes", "📄 筆記"]);
@@ -122,7 +122,7 @@
       if (t === "overview") tabc.innerHTML = tabOverview(c);
       else if (t === "notes") { tabc.innerHTML = tabNotes(c, arg); bindNotes(c); typeset(tabc).then(function () { annotateTerms(document.getElementById("notebody"), c); }); }
       else if (t === "quiz") { tabc.innerHTML = tabQuiz(c); bindQuiz(c); }
-      else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c); }
+      else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c, /\/probs\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "embed") tabc.innerHTML = tabEmbed(c);
       else if (t === "mat") tabc.innerHTML = tabMat(c);
       else { tabc.innerHTML = tabSteps(c); bindSteps(c, arg); typeset(tabc); }
@@ -147,12 +147,15 @@
   function tabSteps(c) {
     if (!c.steps || !c.steps.length) return '<p class="empty">此課尚無學習路徑。</p>';
     var pr = courseProg(c);
-    var allF = [];
-    c.steps.forEach(function (s) { (s.formulas || []).forEach(function (f) { allF.push(f); }); });
+    var nF = 0;
+    c.steps.forEach(function (s) { nF += (s.formulas || []).length; });
     var h = '<div class="course-head"><p class="lead">' + esc(c.summary) + "</p>" +
       '<div class="progtxt" id="stepprog">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + '%)</div><div class="progwrap"><div class="progbar" id="stepbar" style="width:' + pr.pct + '%"></div></div>';
-    if (allF.length) h += '<details class="cheat"><summary>📐 公式速查（' + allF.length + ' 式）</summary>' +
-      allF.map(function (f) { return '<div class="formula"><span class="flabel">' + esc(f.label) + '</span><span class="feq">\\[' + f.tex + '\\]</span></div>'; }).join("") + "</details>";
+    if (nF) h += '<details class="cheat"><summary>📐 公式速查（' + nF + ' 式，附符號說明）</summary>' +
+      c.steps.map(function (s) {
+        if (!s.formulas || !s.formulas.length) return "";
+        return '<div class="fgroup"><div class="fg-t">第 ' + s.step + " 章 · " + esc(s.title) + "</div>" + s.formulas.map(formulaHtml).join("") + "</div>";
+      }).join("") + "</details>" + symbolIndexHtml(c);
     h += "</div>";
     h += '<div class="steps">' + c.steps.map(function (s, i) {
       var done = isDone(c.id, i);
@@ -175,16 +178,71 @@
         return '<div class="thumb" data-gal="' + gal + '" data-k="' + k + '"><img loading="lazy" src="' + im.url + '" alt=""><div class="cap">' + esc(cap) + "</div></div>";
       }).join("") + "</div></div>";
   }
+  function inl(t) { return md(t).replace(/^<p>|<\/p>\s*$/g, ""); }
+  // 公式 + 白話 + 符號說明表
+  function formulaHtml(f) {
+    var h = '<div class="formula"><span class="flabel">' + esc(f.label) + '</span><span class="feq">\\[' + f.tex + '\\]</span>';
+    if (f.plain) h += '<div class="fplain">💬 ' + inl(f.plain) + "</div>";
+    if (f.vars && f.vars.length) h += '<table class="fvars"><tbody>' + f.vars.map(function (v) {
+      return '<tr><td class="fs">\\(' + esc(v.s) + '\\)</td><td class="fname">' + inl(v.name || "") +
+        (v.note ? '<div class="fnote">⚠️ ' + inl(v.note) + "</div>" : "") + '</td><td class="funit">' + esc(v.unit || "") + "</td></tr>";
+    }).join("") + "</tbody></table>";
+    return h + "</div>";
+  }
+  // 全課符號總表:同一符號在不同章意思不同時分開列
+  function coreName(n) { return String(n || "").replace(/[（(].*$/, "").replace(/\s*=.*$/, "").replace(/\s+[A-Za-z].*$/, "").trim(); }
+  function symbolIndexHtml(c) {
+    var map = {}, order = [];
+    c.steps.forEach(function (s) {
+      (s.formulas || []).forEach(function (f) {
+        (f.vars || []).forEach(function (v) {
+          var k = String(v.s).replace(/\s+/g, ""), m = map[k];
+          if (!m) { m = map[k] = { s: v.s, defs: [] }; order.push(k); }
+          // 同義只是寫法不同(「質量 mass」vs「質量」)就合併,顯示寫得最完整的那個
+          var d = null, cv = coreName(v.name);
+          for (var i = 0; i < m.defs.length; i++) {
+            var cd = coreName(m.defs[i].name);
+            if (cd === cv) d = m.defs[i];
+          }
+          if (d && (v.name || "").length > d.name.length) d.name = v.name;
+          if (!d) { d = { name: v.name || "", unit: v.unit || "", note: v.note || "", steps: [] }; m.defs.push(d); }
+          if (d.steps.indexOf(s.step) < 0) d.steps.push(s.step);
+          if (!d.note && v.note) d.note = v.note;
+        });
+      });
+    });
+    if (!order.length) return "";
+    function key(k) { return (/^\\[a-zA-Z]/.test(k) ? "1" : "0") + k.replace(/[\\{}_^]/g, "").toLowerCase(); }
+    order.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
+    return '<details class="cheat symidx"><summary>🔤 全課符號總表（' + order.length + ' 個符號）</summary>' +
+      '<input class="sym-q" type="search" placeholder="找符號或中文,例如 阻尼、omega、質量">' +
+      '<table class="fvars"><thead><tr><th>符號</th><th>意思</th><th>單位</th><th>章</th></tr></thead>' +
+      order.map(function (k) {
+        var m = map[k], multi = m.defs.length > 1, q = k.toLowerCase();
+        m.defs.forEach(function (d) { q += " " + d.name + " " + d.note; });
+        return '<tbody data-q="' + attr(q.toLowerCase()) + '">' + m.defs.map(function (d, i) {
+          return "<tr>" + (i === 0 ? '<td class="fs" rowspan="' + m.defs.length + '">\\(' + esc(m.s) + "\\)" + (multi ? '<div class="fmulti">一符多義</div>' : "") + "</td>" : "") +
+            '<td class="fname">' + inl(d.name) + (d.note ? '<div class="fnote">⚠️ ' + inl(d.note) + "</div>" : "") + "</td>" +
+            '<td class="funit">' + esc(d.unit) + '</td><td class="fstep">' + d.steps.join("、") + "</td></tr>";
+        }).join("") + "</tbody>";
+      }).join("") + "</table></details>";
+  }
+  // 步驟結尾:去例題分頁第 N 章練習
+  function practiceCtaHtml(c, s, si) {
+    if (!s.problems || !s.problems.length) return "";
+    var got = s.problems.filter(function (p) { return probGot(c.id, p.id); }).length;
+    return '<a class="practice-cta" href="#/c/' + encodeURIComponent(c.id) + "/probs/" + si + '">' +
+      '<span class="pc-ic">🎯</span><span class="pc-t"><b>讀完了?去例題練習第 ' + s.step + " 章</b>" +
+      '<span class="pc-sub">本章 ' + s.problems.length + " 題 · 我會了 " + got + " 題 · 白話翻譯 → 提示 → 詳解</span></span>" +
+      '<span class="pc-go">開始練習 →</span></a>';
+  }
   function stepBodyHtml(c, s, si) {
     var h = "";
     if (s.formulas && s.formulas.length) {
-      h += '<div class="formulas"><div class="ft">📐 重點公式</div>' + s.formulas.map(function (f) {
-        return '<div class="formula"><span class="flabel">' + esc(f.label) + '</span><span class="feq">\\[' + f.tex + '\\]</span></div>';
-      }).join("") + "</div>";
+      h += '<div class="formulas"><div class="ft">📐 重點公式(表格是每個符號的意思)</div>' + s.formulas.map(formulaHtml).join("") + "</div>";
     }
     if (s.noteIndex >= 0 && c.notes[s.noteIndex]) h += '<div class="markdown-body">' + md(c.notes[s.noteIndex].content) + "</div>";
     else h += '<p class="note">本步驟重點見課程主筆記(見「筆記」分頁)。</p>';
-    h += problemsHtml(c, s, si);
     h += galleryHtml("📐 PDF 原圖(點圖放大,附說明)", s.figures, "fig");
     h += galleryHtml("🖼 投影片頁(點圖放大)", s.images, "img");
     if (s.pdfs && s.pdfs.length) {
@@ -198,12 +256,18 @@
       });
       h += "</div>";
     }
+    h += practiceCtaHtml(c, s, si);
     h += '<div class="stepnav">' + (si > 0 ? '<button class="btn ghost" data-go="' + (si - 1) + '">← 上一步</button>' : "<span></span>") +
       '<button class="btn" data-finish="' + si + '">✓ 完成這步' + (si < c.steps.length - 1 ? "，下一步 →" : "") + "</button></div>";
     return h;
   }
   function bindSteps(c, openIdx) {
     var cont = main.querySelector(".steps"); if (!cont) return;
+    var sq = main.querySelector(".sym-q");
+    if (sq) sq.addEventListener("input", function () {
+      var q = sq.value.trim().toLowerCase();
+      [].forEach.call(main.querySelectorAll(".symidx tbody"), function (tb) { tb.style.display = !q || tb.getAttribute("data-q").indexOf(q) >= 0 ? "" : "none"; });
+    });
     function refreshProg() {
       var pr = courseProg(c);
       var t = document.getElementById("stepprog"), b = document.getElementById("stepbar");
@@ -219,7 +283,6 @@
     function fill(body, i) {
       body.innerHTML = stepBodyHtml(c, c.steps[i], i);
       bindThumbs(body, c.steps[i]).then(function () { annotateTerms(body.querySelector(".markdown-body"), c); });
-      bindProblems(body, c);
     }
     function openStep(i) {
       var st = cont.querySelector('.step[data-i="' + i + '"]'), body = document.getElementById("sb" + i); if (!st) return;
@@ -321,11 +384,6 @@
     if (p.links && p.links.length) h += '<div class="prob-links"><b>🔗 延伸閱讀</b> ' + linkList(p.links) + "</div>";
     return h + "</div></div>";
   }
-  function problemsHtml(c, s, si) {
-    if (!s.problems || !s.problems.length) return "";
-    return '<section class="probs"><div class="sl-t">🎯 原教材例題 · 專業詳解（' + s.problems.length + ' 題）<span class="sl-sub">先自己想 → 白話翻譯 → 提示一個一個開 → 最後看詳解</span></div>' +
-      s.problems.map(function (p) { return probCardHtml(c, p, si); }).join("") + "</section>";
-  }
   function stripMd(t) { return String(t || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "[圖]").replace(/[*_`>#]/g, "").trim(); }
   function aiPrompt(c, p, si) {
     var st = c.steps[si] || {};
@@ -383,8 +441,8 @@
     var all = allProblems(c);
     if (!all.length) return '<p class="empty">此課尚無例題。</p>';
     var h = '<div class="pfilter"><span id="probsum" class="progtxt">' + probSummary(c) + "</span>" +
-      '<select id="pf-step"><option value="">全部步驟</option>' + c.steps.map(function (s, i) {
-        return (s.problems && s.problems.length) ? '<option value="' + i + '">' + s.step + ". " + esc(s.title) + "（" + s.problems.length + "）</option>" : "";
+      '<select id="pf-step"><option value="">全部章節</option>' + c.steps.map(function (s, i) {
+        return (s.problems && s.problems.length) ? '<option value="' + i + '">第 ' + s.step + " 章 " + esc(s.title) + "（" + s.problems.length + "）</option>" : "";
       }).join("") + "</select>" +
       '<select id="pf-lv"><option value="">全部難度</option><option>基礎</option><option>考試</option><option>進階</option></select>' +
       '<label class="pf-chk"><input type="checkbox" id="pf-todo"> 只看還不會的</label></div>';
@@ -395,12 +453,13 @@
       }).join("") + "</dl></details>";
     h += '<div id="plist">' + c.steps.map(function (s, i) {
       if (!s.problems || !s.problems.length) return "";
-      return '<div class="pgroup" data-si="' + i + '"><h3>' + s.step + ". " + esc(s.title) + "</h3>" +
+      return '<div class="pgroup" data-si="' + i + '"><h3>第 ' + s.step + " 章 · " + esc(s.title) +
+        ' <a class="pg-back" href="#/c/' + encodeURIComponent(c.id) + "/steps/" + i + '">↩ 回本章筆記</a></h3>' +
         s.problems.map(function (p) { return probCardHtml(c, p, i); }).join("") + "</div>";
     }).join("") + "</div>";
     return h;
   }
-  function bindProblemTab(c) {
+  function bindProblemTab(c, si) {
     var list = document.getElementById("plist"); if (!list) return;
     bindProblems(list, c);
     function apply() {
@@ -418,6 +477,7 @@
       });
     }
     ["#pf-step", "#pf-lv", "#pf-todo"].forEach(function (s) { $(s).addEventListener("change", apply); });
+    if (si !== null && si !== undefined && c.steps[si] && c.steps[si].problems && c.steps[si].problems.length) { $("#pf-step").value = String(si); apply(); }
     typeset(list).then(function () { annotateTerms(list, c); });
   }
 
