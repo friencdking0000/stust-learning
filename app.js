@@ -804,6 +804,91 @@
     el.onclick = function () { var cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom")) || 1; setZoom(b[1] ? cur + b[1] : 1); };
   });
 
+  /* ---------- 作者登入(公開版用;本機版有 private.js 就不需要) ----------
+     assets/v.dat 是 publish.py 用 AES-256-GCM 加密的論文對照;金鑰 = PBKDF2(學號大寫 + "\n" + 密碼)。
+     入口不顯示在畫面上(使用者自訂的隱藏手勢);記住裝置時只存推導出的金鑰,登出即清除。 */
+  var AKEY = "stust_ak", AUTH_TAPS = 15, AUTH_GAP = 800;
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+  function b64d(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function b64e(buf) { var u = new Uint8Array(buf), s = ""; for (var i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); }
+  var vaultP = null;
+  function loadVault() {
+    if (!vaultP) vaultP = fetch("assets/v.dat", { cache: "no-cache" }).then(function (r) { if (!r.ok) throw new Error("no vault"); return r.json(); });
+    vaultP.catch(function () { vaultP = null; });
+    return vaultP;
+  }
+  function deriveKey(id, pw, v) {
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey("raw", enc.encode(id.trim().toUpperCase() + "\n" + pw), "PBKDF2", false, ["deriveBits"]).then(function (k) {
+      return crypto.subtle.deriveBits({ name: "PBKDF2", salt: b64d(v.salt), iterations: v.iter, hash: "SHA-256" }, k, 256);
+    });
+  }
+  function openVault(raw, v) {
+    return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]).then(function (k) {
+      return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64d(v.iv) }, k, b64d(v.ct));
+    }).then(function (buf) { return JSON.parse(new TextDecoder().decode(buf)); });
+  }
+  var canCrypto = !!(window.crypto && crypto.subtle && window.TextEncoder);
+  // 記住裝置:啟動時自動解開(金鑰對不上就清掉,例如換過密碼)
+  if (!PRIV && canCrypto && lsGet(AKEY)) {
+    loadVault().then(function (v) { return openVault(b64d(lsGet(AKEY)), v); })
+      .then(function (d) { PRIV = d; route(); })
+      .catch(function (e) { if (e && e.name === "OperationError") lsDel(AKEY); });
+  }
+  function closeAuth() { var m = document.getElementById("authm"); if (m) m.remove(); }
+  function showAuth() {
+    closeAuth();
+    var m = document.createElement("div");
+    m.id = "authm"; m.className = "auth-ov";
+    var body;
+    if (window.PRIVATE) body = '<p class="auth-msg">本機版已直接顯示論文對照,不需要登入。</p><div class="auth-acts"><button class="btn" data-a="close">關閉</button></div>';
+    else if (PRIV) body = '<p class="auth-msg">✅ 已登入作者模式</p><div class="auth-acts"><button class="btn ghost" data-a="logout">登出</button><button class="btn" data-a="close">關閉</button></div>';
+    else body = '<form class="auth-f"><label>帳號<input name="uid" autocomplete="username" autocapitalize="characters" required></label>' +
+      '<label>密碼<input name="pw" type="password" autocomplete="current-password" required></label>' +
+      '<label class="auth-rm"><input name="rm" type="checkbox" checked> 記住這台裝置</label>' +
+      '<p class="auth-msg" id="authmsg"></p><div class="auth-acts"><button type="button" class="btn ghost" data-a="close">取消</button><button class="btn" type="submit">登入</button></div></form>';
+    m.innerHTML = '<div class="auth-box" role="dialog" aria-modal="true"><div class="auth-t">作者登入</div>' + body + "</div>";
+    document.body.appendChild(m);
+    m.addEventListener("click", function (e) {
+      if (e.target === m) return closeAuth();
+      var a = e.target.closest("[data-a]"); if (!a) return;
+      if (a.dataset.a === "logout") { lsDel(AKEY); PRIV = null; route(); }
+      closeAuth();
+    });
+    var f = m.querySelector("form"); if (!f) return;
+    f.elements.uid.focus();
+    f.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var msg = document.getElementById("authmsg"), btn = f.querySelector('button[type="submit"]');
+      if (!canCrypto) { msg.textContent = "這個瀏覽器不支援,請改用 Chrome 或 Safari。"; return; }
+      btn.disabled = true; msg.textContent = "驗證中…";
+      var v0;
+      loadVault().then(function (v) { v0 = v; return deriveKey(f.elements.uid.value, f.elements.pw.value, v); })
+        .then(function (raw) { return openVault(raw, v0).then(function (d) { return [raw, d]; }); })
+        .then(function (r) {
+          if (f.elements.rm.checked) lsSet(AKEY, b64e(r[0]));
+          PRIV = r[1]; closeAuth(); route();
+        })
+        .catch(function () { msg.textContent = "登入失敗"; btn.disabled = false; f.elements.pw.value = ""; });
+    });
+  }
+  // 隱藏入口:首頁大標題的「📚 st」範圍內連續點 AUTH_TAPS 下(每下間隔 < AUTH_GAP ms;左上角 logo 不算)
+  (function () {
+    var n = 0, last = 0;
+    document.addEventListener("click", function (e) {
+      var el = e.target.closest(".chead h1"), tn = el && el.firstChild;
+      if (!tn || tn.nodeType !== 3 || tn.nodeValue.indexOf("📚 st") !== 0) return;
+      var r = document.createRange(); r.setStart(tn, 0); r.setEnd(tn, 5);  // "📚 st" = 5 個 UTF-16 單位
+      var rc = r.getBoundingClientRect();
+      if (e.clientX > rc.right + 4 || e.clientY < rc.top - 12 || e.clientY > rc.bottom + 12) { n = 0; return; }
+      var now = Date.now(); n = now - last < AUTH_GAP ? n + 1 : 1; last = now;
+      if (n >= AUTH_TAPS) { n = 0; showAuth(); }
+    });
+  })();
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeAuth(); });
+
   window.addEventListener("hashchange", route);
   renderNav();
   route();
