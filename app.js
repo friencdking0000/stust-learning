@@ -205,7 +205,7 @@
       else if (t === "quiz") { tabc.innerHTML = tabQuiz(c); bindQuiz(c); }
       else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c, /\/probs\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "embed") tabc.innerHTML = tabEmbed(c);
-      else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); typesetLazy(tabc, ".th-sec"); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
+      else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); bindLazyDetails(tabc, ".th-f, tbody tr, .markdown-body > *"); typesetLazy(tabc, ".th-sec"); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "mat") tabc.innerHTML = tabMat(c);
       else { tabc.innerHTML = tabSteps(c); bindSteps(c, arg); typeset(tabc); }
     }
@@ -341,7 +341,7 @@
       return '<a href="#/c/' + encodeURIComponent(c.id) + "/thesis/" + i + '">' + esc(x.thesisRef || x.id) + " · " + esc(x.concept || "") + "</a>";
     }).join("") + "</div>";
     if (P.symbolDiffs && P.symbolDiffs.length) {
-      h += '<details class="cheat th-diff" open><summary>⚠️ 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
+      h += '<details class="cheat th-diff"><summary>⚠️ 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
         '<table class="fvars"><thead><tr><th>論文</th><th>課程</th><th>意思</th><th>出現在</th></tr></thead><tbody>' +
         P.symbolDiffs.map(function (d) {
           return "<tr><td>" + inl(d.thesis) + "</td><td>" + inl(d.course) + "</td><td>" + inl(d.meaning || "") + "</td><td>" + inl(d.where || "") + "</td></tr>";
@@ -353,21 +353,23 @@
       if (x.summary) h += '<p class="th-sum">' + inl(x.summary) + "</p>";
       if (x.steps && x.steps.length) h += '<div class="chips">📚 對應課程:' + x.steps.map(function (si) { return stepChip(c, si); }).join("") + "</div>";
       else h += '<p class="note">此節不在本課範圍。</p>';
-      (x.formulas || []).forEach(function (fr) {
-        var f = findFormula(c, fr.step, fr.label);
-        if (!f) return;
-        h += '<div class="th-f">' + formulaHtml(f) + (fr.use ? '<div class="th-use">📝 <b>在你的論文裡:</b>' + inl(fr.use) + "</div>" : "") + "</div>";
+      // 細節全部收合:按了才產生內容並排版(手機上一節不再捲十幾個畫面)
+      var fs = (x.formulas || []).filter(function (fr) { return findFormula(c, fr.step, fr.label); });
+      if (fs.length) h += lazyDetails("th-fold", "📐 用到的課程公式（" + fs.length + "）", function () {
+        return fs.map(function (fr) {
+          return '<div class="th-f">' + formulaHtml(findFormula(c, fr.step, fr.label)) + (fr.use ? '<div class="th-use">📝 <b>在你的論文裡:</b>' + inl(fr.use) + "</div>" : "") + "</div>";
+        }).join("");
       });
-      if (x.symbols && x.symbols.length) {
-        h += '<table class="fvars th-sym"><thead><tr><th>符號</th><th>課程意思</th><th>在你的論文裡</th><th>數值</th></tr></thead><tbody>' +
+      if (x.symbols && x.symbols.length) h += lazyDetails("th-fold", "🔣 符號與數值（" + x.symbols.length + "）", function () {
+        return '<table class="fvars th-sym"><thead><tr><th>符號</th><th>課程意思</th><th>在你的論文裡</th><th>數值</th></tr></thead><tbody>' +
           x.symbols.map(function (v) {
             return '<tr><td class="fs">' + inl(v.s) + "</td><td>" + inl(v.course || "") + "</td><td>" + inl(v.thesis || "") + inferredTag(v.inferred) +
               (v.diff ? '<div class="fnote">⚠️ ' + inl(v.diff) + "</div>" : "") + "</td><td>" + inl(v.value || "—") + (v.unit ? " " + esc(v.unit) : "") + "</td></tr>";
           }).join("") + "</tbody></table>";
-      }
-      if (x.physics) h += '<div class="th-box th-phy"><div class="th-bt">' + esc(LB.physics || "🧠 物理意義(白話)") + '</div><div class="markdown-body">' + md(x.physics, true) + "</div></div>";
-      if (x.check) h += '<div class="th-box th-chk"><div class="th-bt">' + esc(LB.check || "✅ 數值合不合理") + '</div><div class="markdown-body">' + md(x.check, true) + "</div></div>";
-      if (x.notes) h += '<p class="note">🔎 ' + inl(x.notes) + "</p>";
+      });
+      if (x.physics) h += lazyDetails("th-fold th-phy", esc(LB.physics || "🧠 物理意義(白話)"), function () { return '<div class="markdown-body">' + md(x.physics, true) + "</div>"; });
+      if (x.check) h += lazyDetails("th-fold th-chk", esc(LB.check || "✅ 數值合不合理"), function () { return '<div class="markdown-body">' + md(x.check, true) + "</div>"; });
+      if (x.notes) h += lazyDetails("th-fold th-nt", "🔎 資料來源與推定說明", function () { return '<p class="note">' + inl(x.notes) + "</p>"; });
       h += "</section>";
     });
     if (P.openQuestions && P.openQuestions.length) h += '<div class="th-box th-q"><div class="th-bt">❓ 值得再確認的地方</div><ul>' +
