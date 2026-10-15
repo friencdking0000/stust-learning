@@ -205,7 +205,7 @@
       else if (t === "quiz") { tabc.innerHTML = tabQuiz(c); bindQuiz(c); }
       else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c, /\/probs\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "embed") tabc.innerHTML = tabEmbed(c);
-      else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); bindLazyDetails(tabc, ".th-f, tbody tr, .markdown-body > *"); typesetLazy(tabc, ".th-sec"); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
+      else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); bindThesis(tabc); typeset(tabc); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "mat") tabc.innerHTML = tabMat(c);
       else { tabc.innerHTML = tabSteps(c); bindSteps(c, arg); typeset(tabc); }
     }
@@ -333,13 +333,12 @@
   function inferredTag(x) { return x ? '<span class="th-inf" title="論文沒有明寫,由對照者推定">推定</span>' : ""; }
   function tabThesis(c) {
     var P = thesisFor(c), LB = P.labels || {}, h = "";
-    h += '<div class="th-head"><div class="th-lock">🔒 只在本機顯示(private.js 已排除在 GitHub 與公開網站之外)</div>' +
+    h += '<div class="th-head"><div class="th-lock">🔒 作者專用:本機直接顯示;公開網站需登入,內容加密</div>' +
       "<h2>" + inl(P.title || "我的論文") + "</h2>" + (P.oneLine ? '<p class="sub">' + inl(P.oneLine) + "</p>" : "") + "</div>";
-    if (P.overview) h += '<div class="markdown-body th-ov">' + md(P.overview, true) + "</div>";
+    if (P.overview) h += lazyDetails("th-fold th-ovf", "📖 總覽：這份論文在做什麼、這門課扮演什麼角色", function () { return '<div class="markdown-body">' + md(P.overview, true) + "</div>"; });
     var secs = P.sections || [];
-    if (secs.length) h += '<div class="th-toc">' + secs.map(function (x, i) {
-      return '<a href="#/c/' + encodeURIComponent(c.id) + "/thesis/" + i + '">' + esc(x.thesisRef || x.id) + " · " + esc(x.concept || "") + "</a>";
-    }).join("") + "</div>";
+    // 各節已收合成標題列,不再另列目錄
+    if (secs.length) h += '<div class="th-all"><button class="btn ghost" data-thall="1">展開全部章節</button><button class="btn ghost" data-thall="0">收合全部</button></div>';
     if (P.symbolDiffs && P.symbolDiffs.length) {
       h += '<details class="cheat th-diff"><summary>⚠️ 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
         '<table class="fvars"><thead><tr><th>論文</th><th>課程</th><th>意思</th><th>出現在</th></tr></thead><tbody>' +
@@ -348,8 +347,12 @@
         }).join("") + "</tbody></table></details>";
     }
     secs.forEach(function (x, i) {
-      h += '<section class="th-sec" id="th-' + i + '"><div class="th-st"><span class="th-ref">' + esc(x.thesisRef || x.id) + "</span>" +
-        "<b>" + inl(x.concept || "") + "</b>" + inferredTag(x.inferred) + "</div>";
+      // 整節收合:預設只顯示標題,點開才產生內容(裡面的 5 顆收合也是點開才產生)
+      var lid = "lz" + (++lazySeq);
+      h += '<details class="th-sec" id="th-' + i + '" data-lazy="' + lid + '"><summary class="th-st"><span class="th-ref">' + esc(x.thesisRef || x.id) + "</span>" +
+        "<b>" + inl(x.concept || "") + "</b>" + inferredTag(x.inferred) + "</summary></details>";
+      LAZY[lid] = function () {
+      var h = "";
       if (x.summary) h += '<p class="th-sum">' + inl(x.summary) + "</p>";
       if (x.steps && x.steps.length) h += '<div class="chips">📚 對應課程:' + x.steps.map(function (si) { return stepChip(c, si); }).join("") + "</div>";
       else h += '<p class="note">此節不在本課範圍。</p>';
@@ -370,16 +373,28 @@
       if (x.physics) h += lazyDetails("th-fold th-phy", esc(LB.physics || "🧠 物理意義(白話)"), function () { return '<div class="markdown-body">' + md(x.physics, true) + "</div>"; });
       if (x.check) h += lazyDetails("th-fold th-chk", esc(LB.check || "✅ 數值合不合理"), function () { return '<div class="markdown-body">' + md(x.check, true) + "</div>"; });
       if (x.notes) h += lazyDetails("th-fold th-nt", "🔎 資料來源與推定說明", function () { return '<p class="note">' + inl(x.notes) + "</p>"; });
-      h += "</section>";
+      return h;
+      };
     });
     if (P.openQuestions && P.openQuestions.length) h += '<div class="th-box th-q"><div class="th-bt">❓ 值得再確認的地方</div><ul>' +
       P.openQuestions.map(function (q) { return "<li>" + inl(q) + "</li>"; }).join("") + "</ul></div>";
     return h;
   }
+  var TH_SEL = ".th-f, tbody tr, .markdown-body > *";
+  function bindThesis(root) {
+    function nest(d) { bindLazyDetails(d, TH_SEL, nest); }  // 節裡面的收合按鈕也要綁
+    bindLazyDetails(root, TH_SEL, nest);
+    root.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-thall]"); if (!b) return;
+      var open = b.dataset.thall === "1";
+      [].forEach.call(root.querySelectorAll("details.th-sec"), function (d) { d.open = open; });
+    });
+  }
   function focusThesis(i) {
     if (i == null) return;
     var el = document.getElementById("th-" + i);
     if (!el) return;
+    if (el.tagName === "DETAILS") el.open = true;
     setTimeout(function () { el.scrollIntoView({ block: "start" }); el.classList.add("flash"); setTimeout(function () { el.classList.remove("flash"); }, 1600); }, 60);
   }
   // 每章結尾:這章對應論文哪裡
