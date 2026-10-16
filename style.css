@@ -396,3 +396,8 @@ details.th-sec[open]>summary{padding-bottom:8px;border-bottom:1px dashed #e9d5ff
 details.th-sec{padding:10px 14px;margin:10px 0}
 .th-all{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 10px}
 .th-all .btn{font-size:13px;padding:6px 12px}
+/* 外部互動工具 */
+.embed-meta{font-size:13px;color:#64748b;margin:-4px 0 8px;line-height:1.6}
+.embed-meta a{color:var(--accent2)}
+.embed-big{display:block;text-align:center;padding:14px;font-size:15px;margin:8px 0 4px}
+.embed-cta{background:linear-gradient(90deg,#ecfdf5,#f0f9ff);border-color:#a7f3d0}

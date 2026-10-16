@@ -438,6 +438,7 @@
       h += "</div>";
     }
     h += practiceCtaHtml(c, s, si);
+    h += embedCtaHtml(c, si);
     h += thesisLinkHtml(c, si);
     h += '<div class="stepnav">' + (si > 0 ? '<button class="btn ghost" data-go="' + (si - 1) + '">← 上一步</button>' : "<span></span>") +
       '<button class="btn" data-finish="' + si + '">✓ 完成這步' + (si < c.steps.length - 1 ? "，下一步 →" : "") + "</button></div>";
@@ -770,9 +771,24 @@
 
   /* ---- embed ---- */
   function tabEmbed(c) {
+    // 外部工具在手機上不內嵌(太擠),改成大按鈕開新視窗
+    var narrow = !!(window.matchMedia && window.matchMedia("(max-width: 820px)").matches);
     return c.embeds.map(function (e) {
-      return '<div class="embedwrap"><h3>🧩 ' + esc(e.title) + '<a class="embed-open" href="' + e.rel + '" target="_blank">↗ 開新視窗</a></h3>' +
-        '<iframe src="' + e.rel + '" loading="lazy"></iframe></div>';
+      var meta = e.external ? '<div class="embed-meta">' + (e.desc ? esc(e.desc) + "<br>" : "") +
+        "外部網站（非本站製作）· 作者 " + esc(e.author || "—") + (e.license ? " · 授權 " + esc(e.license) : "") +
+        (e.source ? ' · <a href="' + attr(e.source) + '" target="_blank" rel="noopener">原始碼 ↗</a>' : "") + "</div>" : "";
+      var body = e.external && narrow
+        ? '<a class="btn embed-big" href="' + attr(e.rel) + '" target="_blank" rel="noopener">在新視窗開啟 ' + esc(e.title) + " ↗</a>"
+        : '<iframe src="' + e.rel + '" loading="lazy"></iframe>';
+      return '<div class="embedwrap"><h3>🧩 ' + esc(e.title) + '<a class="embed-open" href="' + e.rel + '" target="_blank" rel="noopener">↗ 開新視窗</a></h3>' + meta + body + "</div>";
+    }).join("");
+  }
+  // 章末:這一步有對應的互動工具就提示去玩
+  function embedCtaHtml(c, si) {
+    return (c.embeds || []).filter(function (e) { return e.steps && e.steps.indexOf(si) >= 0; }).map(function (e) {
+      return '<a class="practice-cta embed-cta" href="#/c/' + encodeURIComponent(c.id) + '/embed"><span class="pc-ic">🧩</span>' +
+        '<span class="pc-t"><b>動手玩：' + esc(e.title) + "</b>" + (e.desc ? '<span class="pc-sub">' + esc(e.desc) + "</span>" : "") + "</span>" +
+        '<span class="pc-go">打開互動工具 →</span></a>';
     }).join("");
   }
 
@@ -783,7 +799,7 @@
     cats.forEach(function (p) {
       var arr = c.materials[p[0]] || []; if (!arr.length) return;
       h += "<h3>" + p[1] + '</h3><ul class="matlist">' + arr.map(function (m) {
-        return '<li><a href="' + m.rel + '" target="_blank">' + (m.type === "folder" ? "📁" : "📄") + " " + esc(m.label) + "</a>" + (m.desc ? '<span class="mdesc">' + esc(m.desc) + "</span>" : "") + "</li>";
+        return '<li><a href="' + m.rel + '" target="_blank">' + (m.type === "folder" ? "📁" : m.type === "url" ? "🔗" : "📄") + " " + esc(m.label) + "</a>" + (m.desc ? '<span class="mdesc">' + esc(m.desc) + "</span>" : "") + "</li>";
       }).join("") + "</ul>";
     });
     return h || '<p class="empty">無資料。</p>';
