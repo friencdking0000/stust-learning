@@ -408,6 +408,36 @@
       return '<a href="#/c/' + encodeURIComponent(c.id) + "/thesis/" + p[1] + '"><span class="th-ref">' + esc(p[0].thesisRef || p[0].id) + "</span> " + inl(p[0].concept || "") + " →</a>";
     }).join("") + "</div>";
   }
+  /* ---- 📚 延伸資源(雙佐證:GPT 上網搜尋 → Claude 逐筆開頁核對,只收核對通過的項目) ---- */
+  function resItem(r) {
+    var tag = [r.lang === "zh" ? "中文" : r.lang === "en" ? "英文" : "", r.level].filter(Boolean).join("・");
+    return '<li class="res-item"><a href="' + attr(r.url) + '" target="_blank" rel="noopener">' + esc(r.title) + " ↗</a>" +
+      (tag ? '<span class="res-tag">' + esc(tag) + "</span>" : "") +
+      (r.covers ? '<div class="res-d">' + esc(r.covers) + (r.why ? '<span class="res-why">　' + esc(r.why) + "</span>" : "") + "</div>" : "") + "</li>";
+  }
+  function resData(d) {
+    var tag = [d.dataset, d.id].filter(Boolean).join(" ");
+    return '<li class="res-item"><a href="' + attr(d.url) + '" target="_blank" rel="noopener">' + esc(d.title) + " ↗</a>" +
+      (tag ? '<span class="res-tag">' + esc(tag) + "</span>" : "") +
+      (d.what ? '<div class="res-d">' + esc(d.what) + "</div>" : "") +
+      (d.exercise ? '<div class="res-ex">✏️ 練習：' + esc(d.exercise) + "</div>" : "") +
+      (d.license ? '<div class="res-lic">授權：' + esc(d.license) + "</div>" : "") + "</li>";
+  }
+  function resourcesHtml(s) {
+    var R = s.resources; if (!R) return "";
+    var n = (R.top || []).length + (R.more || []).length + (R.data || []).length;
+    if (!n) return "";
+    return lazyDetails("res-box", "📚 延伸資源（" + n + "）· 外部講解與真實數據", function () {
+      var h = "";
+      if (R.top && R.top.length) h += '<div class="res-h">⭐ 最推薦</div><ul class="res-list">' + R.top.map(resItem).join("") + "</ul>";
+      if (R.data && R.data.length) h += '<div class="res-h">🧪 真實數據（可下載）</div><ul class="res-list">' + R.data.map(resData).join("") + "</ul>";
+      if (R.more && R.more.length) h += lazyDetails("res-more", "更多資源（" + R.more.length + "）", function () {
+        return '<ul class="res-list">' + R.more.map(resItem).join("") + "</ul>";
+      });
+      return h + '<p class="res-src">來源經「雙佐證」：GPT 上網搜尋 → Claude 逐筆開頁核對，只收錄核對通過的項目。</p>';
+    });
+  }
+  function nestLazy(d) { bindLazyDetails(d, ".res-item", nestLazy); }  // 收合裡還有收合(更多資源)
   // 步驟結尾:去例題分頁第 N 章練習
   function practiceCtaHtml(c, s, si) {
     if (!s.problems || !s.problems.length) return "";
@@ -437,6 +467,7 @@
       });
       h += "</div>";
     }
+    h += resourcesHtml(s);
     h += practiceCtaHtml(c, s, si);
     h += embedCtaHtml(c, si);
     h += thesisLinkHtml(c, si);
@@ -467,6 +498,7 @@
     }
     function fill(body, i) {
       body.innerHTML = stepBodyHtml(c, c.steps[i], i);
+      bindLazyDetails(body, ".res-item", nestLazy);
       bindThumbs(body, c.steps[i]).then(function () { annotateTerms(body.querySelector(".markdown-body"), c); });
     }
     function openStep(i) {
