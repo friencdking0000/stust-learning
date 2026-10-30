@@ -104,7 +104,28 @@
     });
   }
   function attr(s) { return esc(s).replace(/"/g, "&quot;"); }
-  function badge(c) { return '<span class="badge s-' + c.status + '">' + c.completeness + "</span>"; }
+  /* 線條圖示:節錄自 Lucide(https://lucide.dev),ISC License, Copyright (c) Lucide Contributors。
+     viewBox 24、stroke=currentColor,大小跟著文字(.ic = 1.15em),深色模式自動變色 */
+  var ICONS = {
+    menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    sunmoon: '<path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.3 17.7-1.4 1.4"/><path d="m19.1 4.9-1.4 1.4"/>',
+    ext: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    cap: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+    copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+    "chev-l": '<path d="m15 18-6-6 6-6"/>',
+    "chev-r": '<path d="m9 18 6-6-6-6"/>'
+  };
+  function ico(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + ICONS[n] + "</svg>"; }
+  [].forEach.call(document.querySelectorAll("[data-ic]"), function (el) { el.innerHTML = ico(el.dataset.ic); });  // index.html 的固定按鈕
+  var EXT = " " + ico("ext");  // 外部連結
+  // 私人對照的標籤可能自帶 emoji,顯示前拿掉(資料本身不動)
+  function noEmo(s) { return String(s).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]\s*/gu, "").trim(); }
   function byId(id) { for (var i = 0; i < D.courses.length; i++) if (D.courses[i].id === id) return D.courses[i]; return null; }
   var $ = function (s, r) { return (r || document).querySelector(s); };
 
@@ -149,7 +170,7 @@
     [].forEach.call(document.querySelectorAll(".cnav"), function (a) { a.classList.toggle("active", a.dataset.id === id); });
   }
 
-  /* 手機:☰ 開關側欄抽屜 */
+  /* 手機:選單鈕開關側欄抽屜 */
   var sidebar = document.getElementById("sidebar"), menuBtn = document.getElementById("menu-btn");
   function setMenu(open) { sidebar.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); }
   menuBtn.addEventListener("click", function () { setMenu(!sidebar.classList.contains("open")); });
@@ -172,8 +193,8 @@
         var pr = courseProg(c);
         var prog = pr.total ? '<div class="progwrap"><div class="progbar" style="width:' + pr.pct + '%"></div></div><div class="progtxt">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + "%)</div>" : "";
         var np = allProblems(c).length;
-        return '<a class="card" href="#/c/' + c.id + '"><div class="card-top">' + badge(c) + "<h3>" + c.title + "</h3></div><p>" + esc(c.summary) + "</p>" + prog +
-          (np ? '<div class="progtxt">🎯 例題 ' + np + " 題(原教材 " + allProblems(c).filter(function (x) { return x.p.origin === "原教材"; }).length + " · 其餘依講義改編)· " + (c.glossary || []).length + " 條術語註釋</div>" : "") +
+        return '<a class="card" href="#/c/' + c.id + '"><div class="card-top"><h3>' + c.title + "</h3></div><p>" + esc(c.summary) + "</p>" + prog +
+          (np ? '<div class="progtxt">例題 ' + np + " 題(原教材 " + allProblems(c).filter(function (x) { return x.p.origin === "原教材"; }).length + " · 其餘依講義改編)· " + (c.glossary || []).length + " 條術語註釋</div>" : "") +
           '<div class="chips">' + c.topics.slice(0, 3).map(function (t) { return '<span class="chip">' + esc(t) + "</span>"; }).join("") +
           (c.topics.length > 3 ? '<span class="chip more">+' + (c.topics.length - 3) + "</span>" : "") + "</div></a>";
       }).join("") + "</div>" +
@@ -185,18 +206,18 @@
   /* ---------- course ---------- */
   function renderCourse(id, tab, arg) {
     var c = byId(id); if (!c) return renderHome();
-    var tabs = [["steps", "📚 學習路徑"]];
+    var tabs = [["steps", "學習路徑"]];
     var np = allProblems(c).length;
-    if (np) tabs.push(["probs", "🎯 例題練習（" + np + "）"]);
-    if (c.quiz) tabs.push(["quiz", "❓ 測驗"]);
-    if (c.embeds && c.embeds.length) tabs.push(["embed", "🧩 互動工具"]);
-    if (c.notes && c.notes.length) tabs.push(["notes", "📄 筆記"]);
-    if (thesisFor(c)) tabs.push(["thesis", "🔬 我的論文"]);
+    if (np) tabs.push(["probs", "例題練習（" + np + "）"]);
+    if (c.quiz) tabs.push(["quiz", "測驗"]);
+    if (c.embeds && c.embeds.length) tabs.push(["embed", "互動工具"]);
+    if (c.notes && c.notes.length) tabs.push(["notes", "筆記"]);
+    if (thesisFor(c)) tabs.push(["thesis", "我的論文"]);
     if (libFor(c).length) tabs.push(["lib", "PI 資料庫（" + libFor(c).length + "）"]);
     
     main.innerHTML =
       '<header class="chead"><div class="crumb"><a href="#/">首頁</a> / ' + c.title + "</div>" +
-      "<h1>" + c.title + " " + badge(c) + "</h1><p class='sub'>" + esc(c.subtitle || "") + "</p></header>" +
+      "<h1>" + c.title + "</h1><p class='sub'>" + esc(c.subtitle || "") + "</p></header>" +
       '<div class="tabwrap"><div class="tabbar">' + tabs.map(function (t) { return '<button class="tab" data-t="' + t[0] + '">' + t[1] + "</button>"; }).join("") +
       '</div></div><div id="tabc"></div>';
     var tabc = document.getElementById("tabc");
@@ -229,8 +250,8 @@
     if (pr.total) h += '<div class="progwrap"><div class="progbar" style="width:' + pr.pct + '%"></div></div><div class="progtxt">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + "%)</div>";
     h += "<h3>主題</h3><div class='chips big'>" + c.topics.map(function (t) { return '<span class="chip">' + esc(t) + "</span>"; }).join("") + "</div>";
     if (c.crossLinks && c.crossLinks.length) h += "<h3>跨課關聯</h3><div class='chips'>" + c.crossLinks.map(function (x) { var t = byId(x); return '<a class="chip link" href="#/c/' + x + '">' + (t ? t.title : x) + "</a>"; }).join("") + "</div>";
-    if (c.appliesTo) h += '<p class="note">📌 ' + esc(c.appliesTo) + "</p>";
-    if (c.todo) h += '<p class="note warn">⚠️ ' + esc(c.todo) + "</p>";
+    if (c.appliesTo) h += '<p class="note">' + esc(c.appliesTo) + "</p>";
+    if (c.todo) h += '<p class="note warn">' + ico("alert") + " " + esc(c.todo) + "</p>";
     return h;
   }
 
@@ -243,7 +264,7 @@
     var h = '<div class="course-head"><p class="lead">' + esc(c.summary) + "</p>" +
       '<div class="progtxt" id="stepprog">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + '%)</div><div class="progwrap"><div class="progbar" id="stepbar" style="width:' + pr.pct + '%"></div></div>';
     if (nF) {
-      h += lazyDetails("cheat", "📐 公式速查（" + nF + " 式，附符號說明）", function () {
+      h += lazyDetails("cheat", "公式速查（" + nF + " 式，附符號說明）", function () {
         return c.steps.map(function (s) {
           if (!s.formulas || !s.formulas.length) return "";
           return '<div class="fgroup"><div class="fg-t">第 ' + s.step + " 章 · " + esc(s.title) + "</div>" + s.formulas.map(formulaHtml).join("") + "</div>";
@@ -251,7 +272,7 @@
       });
       var nSym = {};
       c.steps.forEach(function (s) { (s.formulas || []).forEach(function (f) { (f.vars || []).forEach(function (v) { nSym[String(v.s).replace(/\s+/g, "")] = 1; }); }); });
-      if (Object.keys(nSym).length) h += lazyDetails("cheat symidx", "🔤 全課符號總表（" + Object.keys(nSym).length + " 個符號）", function () {
+      if (Object.keys(nSym).length) h += lazyDetails("cheat symidx", "全課符號總表（" + Object.keys(nSym).length + " 個符號）", function () {
         var full = symbolIndexHtml(c);
         return full.slice(full.indexOf("</summary>") + 10, full.lastIndexOf("</details>"));
       });
@@ -260,9 +281,9 @@
     h += '<div class="steps">' + c.steps.map(function (s, i) {
       var done = isDone(c.id, i);
       var hasImg = s.images && s.images.length;
-      var meta = (s.noteIndex >= 0 ? "📄 筆記" : "") + (s.problems && s.problems.length ? "　🎯 例題 ×" + s.problems.length : "") + (hasImg ? "　🖼 投影片 ×" + s.images.length : "");
+      var meta = [s.noteIndex >= 0 ? "筆記" : "", s.problems && s.problems.length ? "例題 ×" + s.problems.length : "", hasImg ? "投影片 ×" + s.images.length : ""].filter(Boolean).join(" · ");
       return '<div class="step' + (done ? " done" : "") + '" data-i="' + i + '">' +
-        '<div class="step-head"><span class="step-no">' + (done ? "✓" : s.step) + "</span>" +
+        '<div class="step-head"><span class="step-no">' + (done ? ico("check") : s.step) + "</span>" +
         '<span class="step-title">' + esc(s.title) + '<span class="step-meta">' + meta + "</span></span>" +
         '<label class="step-chk"><input type="checkbox" ' + (done ? "checked" : "") + ' data-chk="' + i + '"> 完成</label>' +
         '<span class="step-toggle">▾</span></div>' +
@@ -282,10 +303,10 @@
   // 公式 + 白話 + 符號說明表
   function formulaHtml(f) {
     var h = '<div class="formula"><span class="flabel">' + esc(f.label) + '</span><span class="feq">\\[' + esc(f.tex) + '\\]</span>';  // esc:TeX 裡的 < 會被當成 HTML 標籤
-    if (f.plain) h += '<div class="fplain">💬 ' + inl(f.plain) + "</div>";
+    if (f.plain) h += '<div class="fplain">' + inl(f.plain) + "</div>";
     if (f.vars && f.vars.length) h += '<table class="fvars"><tbody>' + f.vars.map(function (v) {
       return '<tr><td class="fs">\\(' + esc(v.s) + '\\)</td><td class="fname">' + inl(v.name || "") +
-        (v.note ? '<div class="fnote">⚠️ ' + inl(v.note) + "</div>" : "") + '</td><td class="funit">' + esc(v.unit || "") + "</td></tr>";
+        (v.note ? '<div class="fnote">' + ico("alert") + " " + inl(v.note) + "</div>" : "") + '</td><td class="funit">' + esc(v.unit || "") + "</td></tr>";
     }).join("") + "</tbody></table>";
     return h + "</div>";
   }
@@ -314,7 +335,7 @@
     if (!order.length) return "";
     function key(k) { return (/^\\[a-zA-Z]/.test(k) ? "1" : "0") + k.replace(/[\\{}_^]/g, "").toLowerCase(); }
     order.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
-    return '<details class="cheat symidx"><summary>🔤 全課符號總表（' + order.length + ' 個符號）</summary>' +
+    return '<details class="cheat symidx"><summary>全課符號總表（' + order.length + ' 個符號）</summary>' +
       '<input class="sym-q" type="search" placeholder="找符號或中文,例如 阻尼、omega、質量">' +
       '<table class="fvars"><thead><tr><th>符號</th><th>意思</th><th>單位</th><th>章</th></tr></thead>' +
       order.map(function (k) {
@@ -322,12 +343,12 @@
         m.defs.forEach(function (d) { q += " " + d.name + " " + d.note; });
         return '<tbody data-q="' + attr(q.toLowerCase()) + '">' + m.defs.map(function (d, i) {
           return "<tr>" + (i === 0 ? '<td class="fs" rowspan="' + m.defs.length + '">\\(' + esc(m.s) + "\\)" + (multi ? '<div class="fmulti">一符多義</div>' : "") + "</td>" : "") +
-            '<td class="fname">' + inl(d.name) + (d.note ? '<div class="fnote">⚠️ ' + inl(d.note) + "</div>" : "") + "</td>" +
+            '<td class="fname">' + inl(d.name) + (d.note ? '<div class="fnote">' + ico("alert") + " " + inl(d.note) + "</div>" : "") + "</td>" +
             '<td class="funit">' + esc(d.unit) + '</td><td class="fstep">' + d.steps.join("、") + "</td></tr>";
         }).join("") + "</tbody>";
       }).join("") + "</table></details>";
   }
-  /* ---- 🔬 我的論文(私人,只在本機) ---- */
+  /* ---- 我的論文(私人,只在本機) ---- */
   function thesisFor(c) { return PRIV && PRIV.courses && c ? PRIV.courses[c.id] || null : null; }
   function findFormula(c, st, label) {
     var s = c.steps[st];
@@ -342,14 +363,14 @@
   function inferredTag(x) { return x ? '<span class="th-inf" title="論文沒有明寫,由對照者推定">推定</span>' : ""; }
   function tabThesis(c) {
     var P = thesisFor(c), LB = P.labels || {}, h = "";
-    h += '<div class="th-head"><div class="th-lock">🔒 作者專用:只在本機顯示,不會發布到公開網站</div>' +
+    h += '<div class="th-head"><div class="th-lock">作者專用:只在本機顯示,不會發布到公開網站</div>' +
       "<h2>" + inl(P.title || "我的論文") + "</h2>" + (P.oneLine ? '<p class="sub">' + inl(P.oneLine) + "</p>" : "") + "</div>";
-    if (P.overview) h += lazyDetails("th-fold th-ovf", "📖 總覽：這份論文在做什麼、這門課扮演什麼角色", function () { return '<div class="markdown-body">' + md(P.overview, true) + "</div>"; });
+    if (P.overview) h += lazyDetails("th-fold th-ovf", "總覽：這份論文在做什麼、這門課扮演什麼角色", function () { return '<div class="markdown-body">' + md(P.overview, true) + "</div>"; });
     var secs = P.sections || [];
     // 各節已收合成標題列,不再另列目錄
     if (secs.length) h += '<div class="th-all"><button class="btn ghost" data-thall="1">展開全部章節</button><button class="btn ghost" data-thall="0">收合全部</button></div>';
     if (P.symbolDiffs && P.symbolDiffs.length) {
-      h += '<details class="cheat th-diff"><summary>⚠️ 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
+      h += '<details class="cheat th-diff"><summary>' + ico("alert") + ' 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
         '<table class="fvars"><thead><tr><th>論文</th><th>課程</th><th>意思</th><th>出現在</th></tr></thead><tbody>' +
         P.symbolDiffs.map(function (d) {
           return "<tr><td>" + inl(d.thesis) + "</td><td>" + inl(d.course) + "</td><td>" + inl(d.meaning || "") + "</td><td>" + inl(d.where || "") + "</td></tr>";
@@ -363,29 +384,29 @@
       LAZY[lid] = function () {
       var h = "";
       if (x.summary) h += '<p class="th-sum">' + inl(x.summary) + "</p>";
-      if (x.steps && x.steps.length) h += '<div class="chips">📚 對應課程:' + x.steps.map(function (si) { return stepChip(c, si); }).join("") + "</div>";
+      if (x.steps && x.steps.length) h += '<div class="chips">對應課程:' + x.steps.map(function (si) { return stepChip(c, si); }).join("") + "</div>";
       else h += '<p class="note">此節不在本課範圍。</p>';
       // 細節全部收合:按了才產生內容並排版(手機上一節不再捲十幾個畫面)
       var fs = (x.formulas || []).filter(function (fr) { return findFormula(c, fr.step, fr.label); });
-      if (fs.length) h += lazyDetails("th-fold", "📐 用到的課程公式（" + fs.length + "）", function () {
+      if (fs.length) h += lazyDetails("th-fold", "用到的課程公式（" + fs.length + "）", function () {
         return fs.map(function (fr) {
-          return '<div class="th-f">' + formulaHtml(findFormula(c, fr.step, fr.label)) + (fr.use ? '<div class="th-use">📝 <b>在你的論文裡:</b>' + inl(fr.use) + "</div>" : "") + "</div>";
+          return '<div class="th-f">' + formulaHtml(findFormula(c, fr.step, fr.label)) + (fr.use ? '<div class="th-use"><b>在你的論文裡:</b>' + inl(fr.use) + "</div>" : "") + "</div>";
         }).join("");
       });
-      if (x.symbols && x.symbols.length) h += lazyDetails("th-fold", "🔣 符號與數值（" + x.symbols.length + "）", function () {
+      if (x.symbols && x.symbols.length) h += lazyDetails("th-fold", "符號與數值（" + x.symbols.length + "）", function () {
         return '<table class="fvars th-sym"><thead><tr><th>符號</th><th>課程意思</th><th>在你的論文裡</th><th>數值</th></tr></thead><tbody>' +
           x.symbols.map(function (v) {
             return '<tr><td class="fs">' + inl(v.s) + "</td><td>" + inl(v.course || "") + "</td><td>" + inl(v.thesis || "") + inferredTag(v.inferred) +
-              (v.diff ? '<div class="fnote">⚠️ ' + inl(v.diff) + "</div>" : "") + "</td><td>" + inl(v.value || "—") + (v.unit ? " " + esc(v.unit) : "") + "</td></tr>";
+              (v.diff ? '<div class="fnote">' + ico("alert") + " " + inl(v.diff) + "</div>" : "") + "</td><td>" + inl(v.value || "—") + (v.unit ? " " + esc(v.unit) : "") + "</td></tr>";
           }).join("") + "</tbody></table>";
       });
-      if (x.physics) h += lazyDetails("th-fold th-phy", esc(LB.physics || "🧠 物理意義(白話)"), function () { return '<div class="markdown-body">' + md(x.physics, true) + "</div>"; });
-      if (x.check) h += lazyDetails("th-fold th-chk", esc(LB.check || "✅ 數值合不合理"), function () { return '<div class="markdown-body">' + md(x.check, true) + "</div>"; });
-      if (x.notes) h += lazyDetails("th-fold th-nt", "🔎 資料來源與推定說明", function () { return '<p class="note">' + inl(x.notes) + "</p>"; });
+      if (x.physics) h += lazyDetails("th-fold th-phy", esc(noEmo(LB.physics || "物理意義(白話)")), function () { return '<div class="markdown-body">' + md(x.physics, true) + "</div>"; });
+      if (x.check) h += lazyDetails("th-fold th-chk", esc(noEmo(LB.check || "數值合不合理")), function () { return '<div class="markdown-body">' + md(x.check, true) + "</div>"; });
+      if (x.notes) h += lazyDetails("th-fold th-nt", "資料來源與推定說明", function () { return '<p class="note">' + inl(x.notes) + "</p>"; });
       return h;
       };
     });
-    if (P.openQuestions && P.openQuestions.length) h += '<div class="th-box th-q"><div class="th-bt">❓ 值得再確認的地方</div><ul>' +
+    if (P.openQuestions && P.openQuestions.length) h += '<div class="th-box th-q"><div class="th-bt">值得再確認的地方</div><ul>' +
       P.openQuestions.map(function (q) { return "<li>" + inl(q) + "</li>"; }).join("") + "</ul></div>";
     return h;
   }
@@ -413,33 +434,33 @@
     var hit = [];
     (P.sections || []).forEach(function (x, i) { if ((x.steps || []).indexOf(si) >= 0) hit.push([x, i]); });
     if (!hit.length) return "";
-    return '<div class="th-link"><div class="th-bt">🔬 這章對應你論文的:</div>' + hit.map(function (p) {
+    return '<div class="th-link"><div class="th-bt">這章對應你論文的:</div>' + hit.map(function (p) {
       return '<a href="#/c/' + encodeURIComponent(c.id) + "/thesis/" + p[1] + '"><span class="th-ref">' + esc(p[0].thesisRef || p[0].id) + "</span> " + inl(p[0].concept || "") + " →</a>";
     }).join("") + "</div>";
   }
-  /* ---- 📚 延伸資源(雙佐證:GPT 上網搜尋 → Claude 逐筆開頁核對,只收核對通過的項目) ---- */
+  /* ---- 延伸資源(雙佐證:GPT 上網搜尋 → Claude 逐筆開頁核對,只收核對通過的項目) ---- */
   function resItem(r) {
     var tag = [r.lang === "zh" ? "中文" : r.lang === "en" ? "英文" : "", r.level].filter(Boolean).join("・");
-    return '<li class="res-item"><a href="' + attr(r.url) + '" target="_blank" rel="noopener">' + esc(r.title) + " ↗</a>" +
+    return '<li class="res-item"><a href="' + attr(r.url) + '" target="_blank" rel="noopener">' + esc(r.title) + EXT + "</a>" +
       (tag ? '<span class="res-tag">' + esc(tag) + "</span>" : "") +
       (r.covers ? '<div class="res-d">' + esc(r.covers) + (r.why ? '<span class="res-why">　' + esc(r.why) + "</span>" : "") + "</div>" : "") + "</li>";
   }
   function resData(d) {
     var tag = [d.dataset, d.id].filter(Boolean).join(" ");
-    return '<li class="res-item"><a href="' + attr(d.url) + '" target="_blank" rel="noopener">' + esc(d.title) + " ↗</a>" +
+    return '<li class="res-item"><a href="' + attr(d.url) + '" target="_blank" rel="noopener">' + esc(d.title) + EXT + "</a>" +
       (tag ? '<span class="res-tag">' + esc(tag) + "</span>" : "") +
       (d.what ? '<div class="res-d">' + esc(d.what) + "</div>" : "") +
-      (d.exercise ? '<div class="res-ex">✏️ 練習：' + esc(d.exercise) + "</div>" : "") +
+      (d.exercise ? '<div class="res-ex">練習：' + esc(d.exercise) + "</div>" : "") +
       (d.license ? '<div class="res-lic">授權：' + esc(d.license) + "</div>" : "") + "</li>";
   }
   function resourcesHtml(s) {
     var R = s.resources; if (!R) return "";
     var n = (R.top || []).length + (R.more || []).length + (R.data || []).length;
     if (!n) return "";
-    return lazyDetails("res-box", "📚 延伸資源（" + n + "）· 外部講解與真實數據", function () {
+    return lazyDetails("res-box", "延伸資源（" + n + "）· 外部講解與真實數據", function () {
       var h = "";
-      if (R.top && R.top.length) h += '<div class="res-h">⭐ 最推薦</div><ul class="res-list">' + R.top.map(resItem).join("") + "</ul>";
-      if (R.data && R.data.length) h += '<div class="res-h">🧪 真實數據（可下載）</div><ul class="res-list">' + R.data.map(resData).join("") + "</ul>";
+      if (R.top && R.top.length) h += '<div class="res-h">最推薦</div><ul class="res-list">' + R.top.map(resItem).join("") + "</ul>";
+      if (R.data && R.data.length) h += '<div class="res-h">真實數據（可下載）</div><ul class="res-list">' + R.data.map(resData).join("") + "</ul>";
       if (R.more && R.more.length) h += lazyDetails("res-more", "更多資源（" + R.more.length + "）", function () {
         return '<ul class="res-list">' + R.more.map(resItem).join("") + "</ul>";
       });
@@ -452,26 +473,26 @@
     if (!s.problems || !s.problems.length) return "";
     var got = s.problems.filter(function (p) { return probGot(c.id, p.id); }).length;
     return '<a class="practice-cta" href="#/c/' + encodeURIComponent(c.id) + "/probs/" + si + '">' +
-      '<span class="pc-ic">🎯</span><span class="pc-t"><b>讀完了?去例題練習第 ' + s.step + " 章</b>" +
+      '<span class="pc-t"><b>讀完了?去例題練習第 ' + s.step + " 章</b>" +
       '<span class="pc-sub">本章 ' + s.problems.length + " 題 · 我會了 " + got + " 題 · 白話翻譯 → 提示 → 詳解</span></span>" +
       '<span class="pc-go">開始練習 →</span></a>';
   }
   function stepBodyHtml(c, s, si) {
     var h = "";
     if (s.formulas && s.formulas.length) {
-      h += '<div class="formulas"><div class="ft">📐 重點公式(表格是每個符號的意思)</div>' + s.formulas.map(formulaHtml).join("") + "</div>";
+      h += '<div class="formulas"><div class="ft">重點公式(表格是每個符號的意思)</div>' + s.formulas.map(formulaHtml).join("") + "</div>";
     }
     if (s.noteIndex >= 0 && c.notes[s.noteIndex]) h += '<div class="markdown-body">' + md(c.notes[s.noteIndex].content) + "</div>";
     else h += '<p class="note">本步驟重點見課程主筆記(見「筆記」分頁)。</p>';
-    h += galleryHtml("📐 PDF 原圖(點圖放大,附說明)", s.figures, "fig");
-    h += galleryHtml("🖼 投影片頁(點圖放大)", s.images, "img");
+    h += galleryHtml("PDF 原圖(點圖放大,附說明)", s.figures, "fig");
+    h += galleryHtml("投影片頁(點圖放大)", s.images, "img");
     if (s.pdfs && s.pdfs.length) {
-      h += '<div class="pdfref"><div class="sl-t">📄 參考投影片 PDF(開啟 / 預覽 / 下載)</div>';
+      h += '<div class="pdfref"><div class="sl-t">參考投影片 PDF(開啟 / 預覽 / 下載)</div>';
       s.pdfs.forEach(function (p) {
-        h += '<div class="pdfrow"><span class="pdfname">📑 ' + esc(p.title) + "</span>" +
-          '<a class="btn ghost" href="' + p.rel + '" target="_blank">↗ 開啟</a>' +
-          '<a class="btn ghost" href="' + p.rel + '" download>⬇ 下載</a>' +
-          '<button class="btn ghost pdfprev" data-rel="' + p.rel + '">👁 預覽</button></div>' +
+        h += '<div class="pdfrow"><span class="pdfname">' + esc(p.title) + "</span>" +
+          '<a class="btn ghost" href="' + p.rel + '" target="_blank">開啟' + EXT + '</a>' +
+          '<a class="btn ghost" href="' + p.rel + '" download>下載</a>' +
+          '<button class="btn ghost pdfprev" data-rel="' + p.rel + '">預覽</button></div>' +
           '<div class="pdfframe hidden"></div>';
       });
       h += "</div>";
@@ -481,7 +502,7 @@
     h += embedCtaHtml(c, si);
     h += thesisLinkHtml(c, si);
     h += '<div class="stepnav">' + (si > 0 ? '<button class="btn ghost" data-go="' + (si - 1) + '">← 上一步</button>' : "<span></span>") +
-      '<button class="btn" data-finish="' + si + '">✓ 完成這步' + (si < c.steps.length - 1 ? "，下一步 →" : "") + "</button></div>";
+      '<button class="btn" data-finish="' + si + '">完成這步' + (si < c.steps.length - 1 ? "，下一步 →" : "") + "</button></div>";
     return h;
   }
   function bindSteps(c, openIdx) {
@@ -522,13 +543,13 @@
       var fin = e.target.closest("[data-finish]");
       if (fin) {
         var fi = parseInt(fin.getAttribute("data-finish"), 10), box = cont.querySelector('input[data-chk="' + fi + '"]');
-        if (box && !box.checked) { box.checked = true; setDone(c.id, fi, true); var se = cont.querySelector('.step[data-i="' + fi + '"]'); se.classList.add("done"); se.querySelector(".step-no").textContent = "✓"; refreshProg(); }
+        if (box && !box.checked) { box.checked = true; setDone(c.id, fi, true); var se = cont.querySelector('.step[data-i="' + fi + '"]'); se.classList.add("done"); se.querySelector(".step-no").innerHTML = ico("check"); refreshProg(); }
         document.getElementById("sb" + fi).classList.add("collapsed");
         if (fi < c.steps.length - 1) openStep(fi + 1);
         return;
       }
       var chk = e.target.closest("input[data-chk]");
-      if (chk) { var ci = parseInt(chk.getAttribute("data-chk"), 10); setDone(c.id, ci, chk.checked); var st = cont.querySelector('.step[data-i="' + ci + '"]'); st.classList.toggle("done", chk.checked); st.querySelector(".step-no").textContent = chk.checked ? "✓" : c.steps[ci].step; refreshProg(); return; }
+      if (chk) { var ci = parseInt(chk.getAttribute("data-chk"), 10); setDone(c.id, ci, chk.checked); var st = cont.querySelector('.step[data-i="' + ci + '"]'); st.classList.toggle("done", chk.checked); st.querySelector(".step-no").innerHTML = chk.checked ? ico("check") : c.steps[ci].step; refreshProg(); return; }
       var head = e.target.closest(".step-head");
       if (head && !e.target.closest(".step-body, .step-chk")) { var i = parseInt(head.parentNode.getAttribute("data-i"), 10); toggle(head.parentNode, i); }
     });
@@ -550,8 +571,8 @@
         var frame = btn.closest(".pdfrow").nextElementSibling;
         if (frame.classList.contains("hidden")) {
           if (!frame.innerHTML) frame.innerHTML = '<iframe src="' + btn.getAttribute("data-rel") + '"></iframe>';
-          frame.classList.remove("hidden"); btn.textContent = "👁 收合";
-        } else { frame.classList.add("hidden"); btn.textContent = "👁 預覽"; }
+          frame.classList.remove("hidden"); btn.textContent = "收合";
+        } else { frame.classList.add("hidden"); btn.textContent = "預覽"; }
       });
     });
     return typeset(body);
@@ -578,7 +599,7 @@
     return null;
   }
   function linkList(arr) {
-    return (arr || []).map(function (l) { return '<a href="' + attr(l.url) + '" target="_blank" rel="noopener">' + esc(l.label) + " ↗</a>"; }).join("");
+    return (arr || []).map(function (l) { return '<a href="' + attr(l.url) + '" target="_blank" rel="noopener">' + esc(l.label) + EXT + "</a>"; }).join("");
   }
   function probCardHtml(c, p, si) {
     var got = probGot(c.id, p.id), hints = p.hints || [];
@@ -587,33 +608,33 @@
       '<div class="prob-head"><span class="lv lv-' + attr(p.level || "基礎") + '">' + esc(p.level || "基礎") + "</span>" +
       '<span class="org org-' + attr(p.origin || "自編") + '">' + esc(p.origin || "自編") + "</span>" +
       '<span class="prob-title"><span class="pid">' + esc(p.id) + "</span> " + esc(p.title || "") + "</span>" +
-      (src ? '<span class="prob-src">📄 ' + esc(src) + "</span>" : "") +
+      (src ? '<span class="prob-src">' + esc(src) + "</span>" : "") +
       '<label class="prob-got" title="勾起來 = 我已經會解這題"><input type="checkbox" data-got ' + (got ? "checked" : "") + "> 我會了</label></div>" +
       '<div class="prob-q markdown-body">' + md(p.q, true) + "</div>" +
       '<div class="prob-acts">' +
-      (p.plain ? '<button class="pbtn" data-act="plain">🗣 白話翻譯</button>' : "") +
-      (hints.length ? '<button class="pbtn" data-act="hint">💡 提示 <span class="hcnt">0/' + hints.length + "</span></button>" : "") +
-      '<button class="pbtn main" data-act="sol">📝 專業詳解</button>' +
-      (p.img || p.pdf ? '<button class="pbtn" data-act="orig">🖼 看原題頁</button>' : "") +
-      '<span class="pai"><button class="pbtn ai" data-act="claude">🤖 問 Claude</button>' +
-      '<button class="pbtn ai" data-act="chatgpt">🤖 問 ChatGPT</button>' +
-      '<button class="pbtn ghost" data-act="copy" title="複製給 AI 的提示詞">📋</button></span></div>' +
+      (p.plain ? '<button class="pbtn" data-act="plain">白話翻譯</button>' : "") +
+      (hints.length ? '<button class="pbtn" data-act="hint">提示 <span class="hcnt">0/' + hints.length + "</span></button>" : "") +
+      '<button class="pbtn main" data-act="sol">專業詳解</button>' +
+      (p.img || p.pdf ? '<button class="pbtn" data-act="orig">看原題頁</button>' : "") +
+      '<span class="pai"><button class="pbtn ai" data-act="claude">問 Claude</button>' +
+      '<button class="pbtn ai" data-act="chatgpt">問 ChatGPT</button>' +
+      '<button class="pbtn ghost" data-act="copy" title="複製給 AI 的提示詞" aria-label="複製給 AI 的提示詞">' + ico("copy") + '</button></span></div>' +
       (p.plain ? '<div class="prob-plain hidden"></div>' : "") +
       '<ol class="prob-hints"></ol>' +
       '<div class="prob-orig hidden">' + (p.img ? '<img loading="lazy" src="' + attr(p.img) + '" alt="原題頁">' : "") +
-      (p.pdf ? '<a class="btn ghost" href="' + attr(p.pdf) + '" target="_blank">↗ 開啟原 PDF 該頁</a>' : "") + "</div>" +
+      (p.pdf ? '<a class="btn ghost" href="' + attr(p.pdf) + '" target="_blank">開啟原 PDF 該頁' + EXT + '</a>' : "") + "</div>" +
       '<div class="prob-sol hidden"></div></div>';
     return h;
   }
   // 詳解內容(點「專業詳解」才產生,減少頁面元素)
   function probSolHtml(p) {
     var h = '<div class="markdown-body">' + md(p.solution, true) + "</div>";
-    if (p.answer) h += '<div class="prob-ans">✅ <b>答案</b>　' + md(p.answer).replace(/^<p>|<\/p>\s*$/g, "") + "</div>";
-    if (p.pitfalls && p.pitfalls.length) h += '<div class="prob-pit"><b>⚠️ 常見錯誤</b><ul>' + p.pitfalls.map(function (x) { return "<li>" + md(x).replace(/^<p>|<\/p>\s*$/g, "") + "</li>"; }).join("") + "</ul></div>";
-    if (p.notes && p.notes.length) h += '<div class="prob-notes"><b>📖 術語註釋</b><dl>' + p.notes.map(function (n) {
-      return "<dt>" + esc(n.term) + (n.url ? ' <a href="' + attr(n.url) + '" target="_blank" rel="noopener">↗</a>' : "") + "</dt><dd>" + md(n.def).replace(/^<p>|<\/p>\s*$/g, "") + "</dd>";
+    if (p.answer) h += '<div class="prob-ans"><b>答案</b>　' + md(p.answer).replace(/^<p>|<\/p>\s*$/g, "") + "</div>";
+    if (p.pitfalls && p.pitfalls.length) h += '<div class="prob-pit"><b>' + ico("alert") + ' 常見錯誤</b><ul>' + p.pitfalls.map(function (x) { return "<li>" + md(x).replace(/^<p>|<\/p>\s*$/g, "") + "</li>"; }).join("") + "</ul></div>";
+    if (p.notes && p.notes.length) h += '<div class="prob-notes"><b>術語註釋</b><dl>' + p.notes.map(function (n) {
+      return "<dt>" + esc(n.term) + (n.url ? ' <a href="' + attr(n.url) + '" target="_blank" rel="noopener" aria-label="延伸閱讀">' + ico("ext") + '</a>' : "") + "</dt><dd>" + md(n.def).replace(/^<p>|<\/p>\s*$/g, "") + "</dd>";
     }).join("") + "</dl></div>";
-    if (p.links && p.links.length) h += '<div class="prob-links"><b>🔗 延伸閱讀</b> ' + linkList(p.links) + "</div>";
+    if (p.links && p.links.length) h += '<div class="prob-links"><b>延伸閱讀</b> ' + linkList(p.links) + "</div>";
     return h;
   }
   function stripMd(t) { return String(t || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "[圖]").replace(/[*_`>#]/g, "").trim(); }
@@ -626,7 +647,7 @@
       (p.answer ? "\n\n【參考答案（請幫我確認並解釋）】" + stripMd(p.answer) : "") + "\n\n【我卡住的地方】";
   }
   function copyText(t, btn) {
-    function ok() { if (btn) { var o = btn.textContent; btn.textContent = "✔ 已複製"; setTimeout(function () { btn.textContent = o; }, 1400); } }
+    function ok() { if (btn) { var o = btn.innerHTML; btn.innerHTML = ico("check") + " 已複製"; setTimeout(function () { btn.innerHTML = o; }, 1400); } }
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, fallback); else fallback();
     function fallback() { var ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch (e) {} document.body.removeChild(ta); }
   }
@@ -648,7 +669,7 @@
       var card = b.closest(".prob"), f = findProblem(c, card.dataset.pid); if (!f) return;
       var p = f.p, act = b.dataset.act;
       function tog(sel) { var el = card.querySelector(sel); if (!el) return null; el.classList.toggle("hidden"); b.classList.toggle("on", !el.classList.contains("hidden")); return el; }
-      if (act === "plain") { var pl = tog(".prob-plain"); if (pl && !pl.innerHTML) { pl.innerHTML = "🗣 " + md(p.plain, true); typeset(pl); } }
+      if (act === "plain") { var pl = tog(".prob-plain"); if (pl && !pl.innerHTML) { pl.innerHTML = md(p.plain, true); typeset(pl); } }
       else if (act === "hint") {
         var ol = card.querySelector(".prob-hints"), n = ol.children.length, hs = p.hints || [];
         if (n < hs.length) { var li = document.createElement("li"); li.innerHTML = md(hs[n]).replace(/^<p>|<\/p>\s*$/g, ""); ol.appendChild(li); typeset(li); n++; }
@@ -678,15 +699,15 @@
       }).join("") + "</select>" +
       '<select id="pf-lv"><option value="">全部難度</option><option>基礎</option><option>考試</option><option>進階</option></select>' +
       '<label class="pf-chk"><input type="checkbox" id="pf-todo"> 只看還不會的</label></div>';
-    if (c.glossary && c.glossary.length) h += '<details class="cheat gloss"><summary>📖 全課術語註釋（' + c.glossary.length + ' 條）</summary><dl>' +
+    if (c.glossary && c.glossary.length) h += '<details class="cheat gloss"><summary>全課術語註釋（' + c.glossary.length + ' 條）</summary><dl>' +
       c.glossary.map(function (g) {
         return "<dt>" + esc(g.term) + (g.alias && g.alias.length ? ' <span class="alias">' + esc(g.alias.join(" / ")) + "</span>" : "") +
-          (g.url ? ' <a href="' + attr(g.url) + '" target="_blank" rel="noopener">↗</a>' : "") + "</dt><dd>" + esc(g.def) + "</dd>";
+          (g.url ? ' <a href="' + attr(g.url) + '" target="_blank" rel="noopener" aria-label="延伸閱讀">' + ico("ext") + '</a>' : "") + "</dt><dd>" + esc(g.def) + "</dd>";
       }).join("") + "</dl></details>";
     h += '<div id="plist">' + c.steps.map(function (s, i) {
       if (!s.problems || !s.problems.length) return "";
       return '<div class="pgroup" data-si="' + i + '"><h3>第 ' + s.step + " 章 · " + esc(s.title) +
-        ' <a class="pg-back" href="#/c/' + encodeURIComponent(c.id) + "/steps/" + i + '">↩ 回本章筆記</a></h3>' +
+        ' <a class="pg-back" href="#/c/' + encodeURIComponent(c.id) + "/steps/" + i + '">← 回本章筆記</a></h3>' +
         s.problems.map(function (p) { return probCardHtml(c, p, i); }).join("") + "</div>";
     }).join("") + "</div>";
     return h;
@@ -748,7 +769,7 @@
         sp.className = "term"; sp.tabIndex = 0; sp.textContent = m[0];
         var tip = document.createElement("span"); tip.className = "tip";
         tip.innerHTML = "<b>" + esc(g.term) + "</b>" + (g.alias && g.alias.length ? ' <i>' + esc(g.alias.join(" / ")) + "</i>" : "") +
-          "<br>" + esc(g.def) + (g.url ? '<br><a href="' + attr(g.url) + '" target="_blank" rel="noopener">延伸閱讀 ↗</a>' : "");
+          "<br>" + esc(g.def) + (g.url ? '<br><a href="' + attr(g.url) + '" target="_blank" rel="noopener">延伸閱讀' + EXT + '</a>' : "");
         sp.appendChild(tip); frag.appendChild(sp); last = m.index + m[0].length;
       }
       if (frag) { frag.appendChild(document.createTextNode(text.slice(last))); node.parentNode.replaceChild(frag, node); }
@@ -760,7 +781,7 @@
     if (!c.notes.length) return '<p class="empty">此課尚無可顯示的筆記。</p>';
     idx = Math.min(idx || 0, c.notes.length - 1);
     return '<div class="noteswrap"><div class="notelist">' + c.notes.map(function (n, i) {
-      return '<button class="noteitem ' + (i === idx ? "active" : "") + '" data-i="' + i + '">' + (n.primary ? "⭐ " : "") + esc(n.title) + "</button>";
+      return '<button class="noteitem ' + (i === idx ? "active" : "") + '" data-i="' + i + '">' + esc(n.title) + (n.primary ? ' <span class="pill">主要</span>' : "") + "</button>";
     }).join("") + '</div><article class="markdown-body" id="notebody">' + md(c.notes[idx].content) + "</article></div>";
   }
   function bindNotes(c) {
@@ -806,7 +827,7 @@
         if (bk === k && k !== correct) b.classList.add("wrong");
       });
       if (k === correct) score++;
-      var exp = card.querySelector(".qexp"); exp.textContent = (k === correct ? "✅ 正確。" : "❌ 正解是「" + q.items[i].options[correct] + "」。") + (q.items[i].explain || ""); exp.classList.remove("hidden");
+      var exp = card.querySelector(".qexp"); exp.innerHTML = (k === correct ? ico("check") + " 正確。" : ico("x") + " 正解是「" + esc(q.items[i].options[correct]) + "」。") + esc(q.items[i].explain || ""); exp.classList.remove("hidden");
       document.getElementById("qscore").textContent = (q.title || "互動測驗") + "　得分 " + score + " / " + q.items.length;
     });
   }
@@ -818,17 +839,17 @@
     return c.embeds.map(function (e) {
       var meta = e.external ? '<div class="embed-meta">' + (e.desc ? esc(e.desc) + "<br>" : "") +
         "外部網站（非本站製作）· 作者 " + esc(e.author || "—") + (e.license ? " · 授權 " + esc(e.license) : "") +
-        (e.source ? ' · <a href="' + attr(e.source) + '" target="_blank" rel="noopener">原始碼 ↗</a>' : "") + "</div>" : "";
+        (e.source ? ' · <a href="' + attr(e.source) + '" target="_blank" rel="noopener">原始碼' + EXT + '</a>' : "") + "</div>" : "";
       var body = e.external && narrow
-        ? '<a class="btn embed-big" href="' + attr(e.rel) + '" target="_blank" rel="noopener">在新視窗開啟 ' + esc(e.title) + " ↗</a>"
+        ? '<a class="btn embed-big" href="' + attr(e.rel) + '" target="_blank" rel="noopener">在新視窗開啟 ' + esc(e.title) + EXT + "</a>"
         : '<iframe src="' + e.rel + '" loading="lazy"></iframe>';
-      return '<div class="embedwrap"><h3>🧩 ' + esc(e.title) + '<a class="embed-open" href="' + e.rel + '" target="_blank" rel="noopener">↗ 開新視窗</a></h3>' + meta + body + "</div>";
+      return '<div class="embedwrap"><h3>' + esc(e.title) + '<a class="embed-open" href="' + e.rel + '" target="_blank" rel="noopener">開新視窗' + EXT + '</a></h3>' + meta + body + "</div>";
     }).join("");
   }
   // 章末:這一步有對應的互動工具就提示去玩
   function embedCtaHtml(c, si) {
     return (c.embeds || []).filter(function (e) { return e.steps && e.steps.indexOf(si) >= 0; }).map(function (e) {
-      return '<a class="practice-cta embed-cta" href="#/c/' + encodeURIComponent(c.id) + '/embed"><span class="pc-ic">🧩</span>' +
+      return '<a class="practice-cta embed-cta" href="#/c/' + encodeURIComponent(c.id) + '/embed">' +
         '<span class="pc-t"><b>動手玩：' + esc(e.title) + "</b>" + (e.desc ? '<span class="pc-sub">' + esc(e.desc) + "</span>" : "") + "</span>" +
         '<span class="pc-go">打開互動工具 →</span></a>';
     }).join("");
@@ -841,7 +862,7 @@
     cats.forEach(function (p) {
       var arr = c.materials[p[0]] || []; if (!arr.length) return;
       h += "<h3>" + p[1] + '</h3><ul class="matlist">' + arr.map(function (m) {
-        return '<li><a href="' + m.rel + '" target="_blank">' + (m.type === "folder" ? "📁" : m.type === "url" ? "🔗" : "📄") + " " + esc(m.label) + "</a>" + (m.desc ? '<span class="mdesc">' + esc(m.desc) + "</span>" : "") + "</li>";
+        return '<li><a href="' + m.rel + '" target="_blank">' + esc(m.label) + (m.type === "url" ? EXT : "") + "</a>" + (m.desc ? '<span class="mdesc">' + esc(m.desc) + "</span>" : "") + "</li>";
       }).join("") + "</ul>";
     });
     return h || '<p class="empty">無資料。</p>';
@@ -946,7 +967,7 @@
     sidx = [];
     D.courses.forEach(function (c) {
       c.notes.forEach(function (n, i) { sidx.push({ cid: c.id, ctitle: c.title, href: "#/c/" + c.id + "/notes/" + i, title: n.title, text: (n.title + "\n" + n.content).toLowerCase() }); });
-      allProblems(c).forEach(function (x) { var p = x.p; sidx.push({ cid: c.id, ctitle: c.title, href: "#/c/" + c.id + "/probs", title: "🎯 " + p.id + " " + (p.title || ""), text: [p.title, p.q, p.plain, p.solution].join("\n").toLowerCase() }); });
+      allProblems(c).forEach(function (x) { var p = x.p; sidx.push({ cid: c.id, ctitle: c.title, href: "#/c/" + c.id + "/probs", title: "例題 " + p.id + " " + (p.title || ""), text: [p.title, p.q, p.plain, p.solution].join("\n").toLowerCase() }); });
     });
   }
   search.addEventListener("input", function () {
@@ -954,7 +975,7 @@
     if (q.length < 2) { route(); return; }
     if (!sidx) buildIndex();
     var hits = sidx.filter(function (x) { return x.text.indexOf(q) >= 0; }).slice(0, 40);
-    main.innerHTML = '<header class="chead"><h1>🔍 搜尋:「' + esc(search.value.trim()) + '」</h1><p class="sub">' + hits.length + " 筆結果</p></header>" +
+    main.innerHTML = '<header class="chead"><h1>搜尋:「' + esc(search.value.trim()) + '」</h1><p class="sub">' + hits.length + " 筆結果</p></header>" +
       (hits.length ? '<div class="results">' + hits.map(function (x) {
         var pos = x.text.indexOf(q), snip = x.text.slice(Math.max(0, pos - 40), pos + 60);
         return '<a class="result" href="' + x.href + '"><b>' + x.ctitle + "</b> › " + esc(x.title) + '<span class="snip">…' + esc(snip) + "…</span></a>";
@@ -973,13 +994,13 @@
   });
 
   /* ---------- 淺色/深色主題(auto = 跟隨系統;index.html <head> 先套用避免閃爍) ---------- */
-  var TKEY = "stust_theme", THEMES = { auto: ["🌗", "跟隨系統"], light: ["☀", "淺色"], dark: ["🌙", "深色"] };
+  var TKEY = "stust_theme", THEMES = { auto: ["sunmoon", "跟隨系統"], light: ["sun", "淺色"], dark: ["moon", "深色"] };
   function setTheme(mode) {
     if (!THEMES[mode]) mode = "auto";
     if (mode === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = mode;
     try { if (mode === "auto") localStorage.removeItem(TKEY); else localStorage.setItem(TKEY, mode); } catch (e) {}
     var b = document.getElementById("theme-btn");
-    if (b) { b.textContent = THEMES[mode][0]; b.title = "主題：" + THEMES[mode][1] + "(點一下切換)"; b.dataset.mode = mode; }
+    if (b) { b.innerHTML = ico(THEMES[mode][0]); b.title = "主題：" + THEMES[mode][1] + "(點一下切換)"; b.dataset.mode = mode; }
   }
   setTheme(document.documentElement.dataset.theme || "auto");
   var themeBtn = document.getElementById("theme-btn");
@@ -991,7 +1012,7 @@
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
   lsDel("stust_ak");   // 2026-10-30 起停用的舊功能留下的裝置金鑰,清掉
 
-  /* ---------- 🎓 AI 助教 ----------
+  /* ---------- AI 助教 ----------
      A 轉交:組好「規則 + 本章教材 + 問題」開 Claude / ChatGPT(免費,完整教材另複製到剪貼簿)
      C 自備金鑰:使用者自己的 Anthropic API 金鑰只存在他的瀏覽器,SDK 第一次用才從 CDN 載入、直接串流回答
      只用公開的 SITE_DATA,論文對照(PRIVATE)永遠不放進去 */
@@ -1000,12 +1021,12 @@
   var MODELS = [["claude-opus-5-5", "Claude Opus 5.5(最準;約 US$4 / 20 每百萬 token)"],
                 ["claude-sonnet-5-5", "Claude Sonnet 5.5(平衡;約 US$2 / 10)"],
                 ["claude-haiku-5-5", "Claude Haiku 5.5(最便宜;約 US$0.1 / 0.5)"]];
-  var QUICK = [["📖 解釋這一章", "請用白話帶我讀懂這一章:先一句話總結,再列 3–5 個重點觀念(每個配一個例子或數字),最後告訴我考試最常考哪裡。"],
-               ["🧩 我卡住了", "我卡在:(寫下題號或卡住的地方)\n請先只給我第一步提示,不要直接給完整答案。"],
-               ["📝 出 5 題練習", "請依這一章出 5 題練習(2 題觀念、2 題計算、1 題應用),由淺到深,每題標出對應的公式。先只出題目,解答統一放在最後的「解答」段落,讓我先自己作答。"]];
+  var QUICK = [["解釋這一章", "請用白話帶我讀懂這一章:先一句話總結,再列 3–5 個重點觀念(每個配一個例子或數字),最後告訴我考試最常考哪裡。"],
+               ["我卡住了", "我卡在:(寫下題號或卡住的地方)\n請先只給我第一步提示,不要直接給完整答案。"],
+               ["出 5 題練習", "請依這一章出 5 題練習(2 題觀念、2 題計算、1 題應用),由淺到深,每題標出對應的公式。先只出題目,解答統一放在最後的「解答」段落,讓我先自己作答。"]];
   var T = { open: false, c: null, si: 0, msgs: [], busy: false, sdk: null, owner: false };
   var tutorBtn = document.createElement("button"), tutorBox = document.createElement("aside");
-  tutorBtn.id = "tutor-btn"; tutorBtn.className = "hidden"; tutorBtn.innerHTML = '🎓<span class="tb-t"> AI 助教</span>'; tutorBtn.setAttribute("aria-label", "AI 助教");
+  tutorBtn.id = "tutor-btn"; tutorBtn.className = "hidden"; tutorBtn.innerHTML = ico("cap") + '<span class="tb-t">AI 助教</span>'; tutorBtn.setAttribute("aria-label", "AI 助教");
   tutorBox.id = "tutor"; tutorBox.className = "hidden"; tutorBox.setAttribute("aria-label", "AI 助教");
   document.body.appendChild(tutorBtn); document.body.appendChild(tutorBox);
 
@@ -1070,7 +1091,7 @@
   function tutorAsk() {
     var c = T.c, inp = tutorEl(".tt-in"), q = inp.value.trim(), key = tutorKey();
     if (!q || T.busy) return;
-    if (!key) { tutorEl(".tt-set").open = true; tutorNote("先在下方「⚙ 設定」貼上你的 Anthropic API 金鑰;或改按「用 Claude / ChatGPT 開啟」(免費)。"); return; }
+    if (!key) { tutorEl(".tt-set").open = true; tutorNote("先在下方「設定」貼上你的 Anthropic API 金鑰;或改按「用 Claude / ChatGPT 開啟」(免費)。"); return; }
     var model = tutorModel(), out = { role: "assistant", content: "" };
     T.msgs.push({ role: "user", content: q }, out); T.busy = true; inp.value = ""; tutorLog();
     var body = tutorEl(".tt-log .tt-msg:last-child .tt-body");
@@ -1091,17 +1112,17 @@
     }).catch(function (e) {
       T.msgs.splice(-2, 2); inp.value = q;   // 失敗就把問題放回輸入框,對話紀錄不留空回答
       return tutorErr(e);
-    }).then(function (err) { T.busy = false; tutorLog(); if (err) tutorNote(err); });
+    }).then(function (err) { T.busy = false; tutorLog(); if (err) tutorNote(err, "alert"); });
   }
   function tutorErr(e) {
     var s = e && e.status;
-    if (s === 401) return tutorOwner() ? "❌ 作者金鑰無效或已被停用:更新 _私人/claude_api_key.txt 後重新建置/發布。" : "❌ 金鑰無效或已被停用,請到 ⚙ 設定重新貼上。";
-    if (s === 403) return "❌ 這把金鑰沒有權限使用這個模型。";
-    if (s === 429) return "⏳ 請求太頻繁或達到帳號限額,稍等一下再試。";
-    if (s === 400 && /credit/i.test(e.message || "")) return "💳 帳號額度不足,請到 Anthropic Console 儲值。";
-    if (s >= 500) return "⚠️ Anthropic 伺服器暫時有問題,稍後再試。";
-    if (s) return "⚠️ 發生錯誤(" + s + "):" + (e.message || "");
-    return "⚠️ 連不上 Anthropic 或載入失敗,請檢查網路後再試。";
+    if (s === 401) return tutorOwner() ? "作者金鑰無效或已被停用:更新 _私人/claude_api_key.txt 後重新建置/發布。" : "金鑰無效或已被停用,請到「設定」重新貼上。";
+    if (s === 403) return "這把金鑰沒有權限使用這個模型。";
+    if (s === 429) return "請求太頻繁或達到帳號限額,稍等一下再試。";
+    if (s === 400 && /credit/i.test(e.message || "")) return "帳號額度不足,請到 Anthropic Console 儲值。";
+    if (s >= 500) return "Anthropic 伺服器暫時有問題,稍後再試。";
+    if (s) return "發生錯誤(" + s + "):" + (e.message || "");
+    return "連不上 Anthropic 或載入失敗,請檢查網路後再試。";
   }
 
   // AI 回答轉成 HTML 後去掉 script / 事件屬性,避免模型輸出的 HTML 在頁面上執行
@@ -1118,12 +1139,12 @@
     return t.innerHTML;
   }
   function tutorScroll() { var l = tutorEl(".tt-log"); if (l) l.scrollTop = l.scrollHeight; }
-  function tutorNote(t) { var l = tutorEl(".tt-log"), p = document.createElement("p"); p.className = "tt-note"; p.textContent = t; l.appendChild(p); tutorScroll(); }
+  function tutorNote(t, ic) { var l = tutorEl(".tt-log"), p = document.createElement("p"); p.className = "tt-note"; p.innerHTML = (ic ? ico(ic) + " " : "") + esc(t); l.appendChild(p); tutorScroll(); }
   function tutorLog() {
     var l = tutorEl(".tt-log"); if (!l) return;
     l.innerHTML = T.msgs.length ? T.msgs.map(function (m, i) {
       var last = i === T.msgs.length - 1;
-      return '<div class="tt-msg ' + m.role + '"><div class="tt-who">' + (m.role === "user" ? "你" : "🎓 助教") + '</div><div class="tt-body markdown-body">' +
+      return '<div class="tt-msg ' + m.role + '"><div class="tt-who">' + (m.role === "user" ? "你" : "助教") + '</div><div class="tt-body markdown-body">' +
         (m.role === "user" ? esc(m.content).replace(/\n/g, "<br>") : (T.busy && last ? (m.content ? esc(m.content) : '<span class="tt-wait">助教思考中…</span>') : safeHtml(md(m.content, true)))) + "</div></div>";
     }).join("") : '<p class="tt-empty">我會根據「' + esc((T.c.steps[T.si] || {}).title || "") + '」這一章的筆記、公式和例題回答你。<br>可以先點上面的快捷按鈕。</p>';
     if (!T.busy) typeset(l);
@@ -1133,7 +1154,7 @@
     var c = T.c, key = tutorKey(), model = tutorModel();
     var modelSel = '<label class="tt-ch">模型 <select class="tt-model">' + MODELS.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === model ? " selected" : "") + ">" + x[1] + "</option>"; }).join("") + "</select></label>";
     tutorBox.innerHTML =
-      '<div class="tt-head"><b>🎓 AI 助教</b><span class="tt-course">' + esc(c.title) + '</span><button class="tt-x" title="關閉 (Esc)">✕</button></div>' +
+      '<div class="tt-head"><b>AI 助教</b><span class="tt-course">' + esc(c.title) + '</span><button class="tt-x" title="關閉 (Esc)" aria-label="關閉">' + ico("x") + '</button></div>' +
       '<label class="tt-ch">章節 <select class="tt-sel">' + c.steps.map(function (s, i) {
         return '<option value="' + i + '"' + (i === T.si ? " selected" : "") + ">第 " + (s.step || i + 1) + " 章 " + esc(s.title || "") + "</option>";
       }).join("") + "</select></label>" +
@@ -1144,12 +1165,12 @@
         ? '<div class="tt-acts"><button class="btn tt-send">送出</button><button class="pbtn tt-ho" data-w="claude">用 Claude 開啟</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button></div>'
         : '<div class="tt-acts"><button class="btn tt-ho" data-w="claude">用 Claude 開啟(免費)</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button><button class="pbtn tt-send">用自己的金鑰送出</button></div>') +
       (tutorOwner()
-        ? '<div class="tt-owner"><div><b>🔑 作者模式</b>:使用你自己的 Claude(金鑰只在本機 private.js,不會顯示也不會發布)。</div>' + modelSel + "</div>"
-        : '<details class="tt-set"><summary>⚙ 設定:自備 Anthropic API 金鑰 ' + (key ? "(已設定 …" + esc(key.slice(-4)) + ")" : "(未設定)") + "</summary>" +
+        ? '<div class="tt-owner"><div><b>作者模式</b>:使用你自己的 Claude(金鑰只在本機 private.js,不會顯示也不會發布)。</div>' + modelSel + "</div>"
+        : '<details class="tt-set"><summary>設定:自備 Anthropic API 金鑰 ' + (key ? "(已設定 …" + esc(key.slice(-4)) + ")" : "(未設定)") + "</summary>" +
           '<input type="password" class="tt-key" placeholder="貼上 sk-ant-… 金鑰" autocomplete="off">' +
           '<label class="tt-rm"><input type="checkbox"' + (lsGet(TK) ? " checked" : "") + '> 記住在這台電腦(公用電腦請不要勾)</label>' + modelSel +
           '<div class="tt-acts"><button class="pbtn tt-save">儲存金鑰</button>' + (key ? '<button class="pbtn tt-clear">清除金鑰</button>' : "") +
-          '<a class="tt-link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">取得金鑰 ↗</a></div>' +
+          '<a class="tt-link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">取得金鑰' + EXT + '</a></div>' +
           '<p class="tt-fine">金鑰只存在你自己的瀏覽器,直接傳給 Anthropic;本網站沒有伺服器,看不到你的金鑰。費用由你的 Anthropic 帳號支付。</p></details>') +
       '<p class="tt-fine">回答由 AI 產生,可能有錯,請對照筆記;即時出的題目未經驗算。</p>';
     tutorLog();
@@ -1165,7 +1186,7 @@
     else if (b.classList.contains("tt-save")) {
       var k = tutorEl(".tt-key").value.trim(); if (!k) return;
       if (tutorEl(".tt-rm input").checked) { lsSet(TK, k); ssDel(TK); } else { ssSet(TK, k); lsDel(TK); }
-      tutorRender(); tutorNote("✔ 金鑰已儲存" + (lsGet(TK) ? "(記住在這台電腦)" : "(關閉分頁後就會清除)") + "。");
+      tutorRender(); tutorNote("金鑰已儲存" + (lsGet(TK) ? "(記住在這台電腦)" : "(關閉分頁後就會清除)") + "。", "check");
     } else if (b.classList.contains("tt-clear")) { ssDel(TK); lsDel(TK); tutorRender(); tutorNote("金鑰已清除。"); }
   });
   tutorBox.addEventListener("change", function (e) {
