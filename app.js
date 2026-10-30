@@ -1,7 +1,7 @@
 (function () {
   "use strict";
   var D = window.SITE_DATA || { courses: [] };
-  // 私人論文對照:只有本機 site/private.js 存在時才有(gitignore、不發布)
+  // 私人論文對照:只有本機 site/private.js 存在時才有(gitignore、不發布;公開版沒有任何論文資料或登入入口)
   var PRIV = window.PRIVATE || null;
   var main = document.getElementById("main");
   var nav = document.getElementById("course-nav");
@@ -158,7 +158,6 @@
   function route() {
     setMenu(false);
     tutorSync();
-    if (search.value.trim().length >= 2) return;
     var m = location.hash.match(/^#\/c\/([^/]+)(?:\/(\w+))?(?:\/(\d+))?/);
     if (m) renderCourse(decodeURIComponent(m[1]), m[2] || "steps", m[3] ? parseInt(m[3], 10) : 0);
     else renderHome();
@@ -193,26 +192,34 @@
     if (c.embeds && c.embeds.length) tabs.push(["embed", "🧩 互動工具"]);
     if (c.notes && c.notes.length) tabs.push(["notes", "📄 筆記"]);
     if (thesisFor(c)) tabs.push(["thesis", "🔬 我的論文"]);
+    if (libFor(c).length) tabs.push(["lib", "PI 資料庫（" + libFor(c).length + "）"]);
     
     main.innerHTML =
       '<header class="chead"><div class="crumb"><a href="#/">首頁</a> / ' + c.title + "</div>" +
       "<h1>" + c.title + " " + badge(c) + "</h1><p class='sub'>" + esc(c.subtitle || "") + "</p></header>" +
-      '<div class="tabbar">' + tabs.map(function (t) { return '<button class="tab" data-t="' + t[0] + '">' + t[1] + "</button>"; }).join("") +
-      '</div><div id="tabc"></div>';
+      '<div class="tabwrap"><div class="tabbar">' + tabs.map(function (t) { return '<button class="tab" data-t="' + t[0] + '">' + t[1] + "</button>"; }).join("") +
+      '</div></div><div id="tabc"></div>';
     var tabc = document.getElementById("tabc");
+    var bar = main.querySelector(".tabbar");
     function show(t) {
       [].forEach.call(main.querySelectorAll(".tab"), function (b) { b.classList.toggle("active", b.dataset.t === t); });
+      if ((location.hash.match(/^#\/c\/[^/]+\/(\w+)/) || [])[1] !== t) history.replaceState(null, "", "#/c/" + encodeURIComponent(c.id) + "/" + t);
+      var a = bar.querySelector(".tab.active");
+      if (a && a.offsetLeft + a.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = a.offsetLeft - 24;  // 手機:選中的分頁在畫面外就捲過去
       if (t === "overview") tabc.innerHTML = tabOverview(c);
       else if (t === "notes") { tabc.innerHTML = tabNotes(c, arg); bindNotes(c); typeset(tabc).then(function () { annotateTerms(document.getElementById("notebody"), c); }); }
       else if (t === "quiz") { tabc.innerHTML = tabQuiz(c); bindQuiz(c); }
       else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c, /\/probs\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "embed") tabc.innerHTML = tabEmbed(c);
       else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); bindThesis(tabc); typeset(tabc); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
+      else if (t === "lib") { tabc.innerHTML = tabLib(c); bindLib(c); }
       else if (t === "mat") tabc.innerHTML = tabMat(c);
       else { tabc.innerHTML = tabSteps(c); bindSteps(c, arg); typeset(tabc); }
     }
-    main.querySelector(".tabbar").addEventListener("click", function (e) { var b = e.target.closest(".tab"); if (b) show(b.dataset.t); });
+    bar.addEventListener("click", function (e) { var b = e.target.closest(".tab"); if (b) show(b.dataset.t); });
+    bar.addEventListener("scroll", tabMore);
     show(tab);
+    tabMore();
     window.scrollTo(0, 0);
   }
 
@@ -257,7 +264,7 @@
       return '<div class="step' + (done ? " done" : "") + '" data-i="' + i + '">' +
         '<div class="step-head"><span class="step-no">' + (done ? "✓" : s.step) + "</span>" +
         '<span class="step-title">' + esc(s.title) + '<span class="step-meta">' + meta + "</span></span>" +
-        '<label class="step-chk" onclick="event.stopPropagation()"><input type="checkbox" ' + (done ? "checked" : "") + ' data-chk="' + i + '"> 完成</label>' +
+        '<label class="step-chk"><input type="checkbox" ' + (done ? "checked" : "") + ' data-chk="' + i + '"> 完成</label>' +
         '<span class="step-toggle">▾</span></div>' +
         '<div class="step-body collapsed" id="sb' + i + '"></div></div>';
     }).join("") + "</div>";
@@ -335,7 +342,7 @@
   function inferredTag(x) { return x ? '<span class="th-inf" title="論文沒有明寫,由對照者推定">推定</span>' : ""; }
   function tabThesis(c) {
     var P = thesisFor(c), LB = P.labels || {}, h = "";
-    h += '<div class="th-head"><div class="th-lock">🔒 作者專用:本機直接顯示;公開網站需登入,內容加密</div>' +
+    h += '<div class="th-head"><div class="th-lock">🔒 作者專用:只在本機顯示,不會發布到公開網站</div>' +
       "<h2>" + inl(P.title || "我的論文") + "</h2>" + (P.oneLine ? '<p class="sub">' + inl(P.oneLine) + "</p>" : "") + "</div>";
     if (P.overview) h += lazyDetails("th-fold th-ovf", "📖 總覽：這份論文在做什麼、這門課扮演什麼角色", function () { return '<div class="markdown-body">' + md(P.overview, true) + "</div>"; });
     var secs = P.sections || [];
@@ -523,12 +530,13 @@
       var chk = e.target.closest("input[data-chk]");
       if (chk) { var ci = parseInt(chk.getAttribute("data-chk"), 10); setDone(c.id, ci, chk.checked); var st = cont.querySelector('.step[data-i="' + ci + '"]'); st.classList.toggle("done", chk.checked); st.querySelector(".step-no").textContent = chk.checked ? "✓" : c.steps[ci].step; refreshProg(); return; }
       var head = e.target.closest(".step-head");
-      if (head && !e.target.closest(".step-body")) { var i = parseInt(head.parentNode.getAttribute("data-i"), 10); toggle(head.parentNode, i); }
+      if (head && !e.target.closest(".step-body, .step-chk")) { var i = parseInt(head.parentNode.getAttribute("data-i"), 10); toggle(head.parentNode, i); }
     });
     // 預設展開第一步(或指定)
     var first = openIdx || 0;
     var fb = document.getElementById("sb" + first);
     if (fb) { fill(fb, first); fb.classList.remove("collapsed"); }
+    if (first > 0) setTimeout(function () { openStep(first); }, 0);  // 等 renderCourse 的 scrollTo(0,0) 之後
   }
   function bindThumbs(body, s) {
     [].forEach.call(body.querySelectorAll(".thumb"), function (el) {
@@ -839,6 +847,99 @@
     return h || '<p class="empty">無資料。</p>';
   }
 
+  /* ---- PI 資料庫:只連 PI 官網原檔(索引由 _整合/library/make_pi_library.py 產生) ---- */
+  var LIBK = { CAT: "型錄", BRO: "手冊", TEC: "技術文", WP: "白皮書", SS: "應用案例", DS: "規格書" };
+  var LIBP = "https://www.physikinstrumente.com/fileadmin/user_upload/";
+  function libFor(c) { return (D.library || []).filter(function (x) { return x.courses.indexOf(c.id) >= 0; }); }
+  function libTitle(x) { return x.kind === "DS" ? x.id + " " + x.t : x.t; }
+  function libItem(x) {
+    return '<li class="lib-item"><span class="lib-k">' + LIBK[x.kind] + "</span> <b>" + esc(libTitle(x)) + "</b>" +
+      (x.zh ? '<span class="mdesc">' + esc(x.zh) + "</span>" : "") +
+      '<span class="lib-a"><a href="' + x.url + '" target="_blank" rel="noopener">官網 PDF（英文）</a>' +
+      (x.urlCN ? ' · <a href="' + x.urlCN + '" target="_blank" rel="noopener">中文版</a>' : "") + "</span></li>";
+  }
+  function tabLib(c) {
+    var L = libFor(c), kinds = Object.keys(LIBK).filter(function (k) { return L.some(function (x) { return x.kind === k; }); });
+    return '<p class="note">從 PI（Physik Instrumente）官網整理的技術文件，連結直接開官網原檔。也可以問右下角的 AI 助教「這章有什麼資料可以看」。</p>' +
+      '<div class="lib-bar"><input class="lib-q" type="search" placeholder="搜尋：中文、日文、英文或型號，例如 遲滯、ヒステリシス、hexapod、E-505">' +
+      '<div class="chips"><button class="chip link lib-f active" data-k="">全部</button>' +
+      kinds.map(function (k) { return '<button class="chip link lib-f" data-k="' + k + '">' + LIBK[k] + "</button>"; }).join("") +
+      '</div></div><p class="lib-n"></p><ul class="matlist lib-list">' + L.map(libItem).join("") + "</ul>";
+  }
+  // 中日文自動翻成英文:D.libGloss = [[英文詞們], [中日文寫法們]];x.g = 這份 PDF 全文出現的詞表索引(make_pi_library.py 產生)
+  var LIBCJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/, libForms = null, libFormMax = 0;
+  function libTrans(w) {   // 回傳 [{src, ids}];中日文用最長比對切詞(沒在詞表的字略過),英文只認詞表裡的詞(含複數)
+    if (!libForms) {
+      libForms = {};
+      (D.libGloss || []).forEach(function (g, i) {
+        g[1].forEach(function (f) {
+          f = f.toLowerCase(); libForms[f] = libForms[f] || [];
+          if (libForms[f].indexOf(i) < 0) libForms[f].push(i);   // 中文和日文同字(例:六軸)只記一次
+          libFormMax = Math.max(libFormMax, f.length);
+        });
+      });
+    }
+    var out = [];
+    if (!LIBCJK.test(w)) {
+      var ids = [];
+      (D.libGloss || []).forEach(function (g, i) {
+        if (g[0].some(function (e) { e = e.toLowerCase(); return e === w || (e.length > 3 && w.indexOf(e) === 0 && w.length - e.length <= 2); })) ids.push(i);
+      });
+      return ids.length ? [{ src: w, ids: ids }] : [];
+    }
+    for (var p = 0; p < w.length;) {
+      for (var n = Math.min(libFormMax, w.length - p); n > 0; n--) {
+        var f = w.substr(p, n);
+        if (libForms.hasOwnProperty(f)) { out.push({ src: f, ids: libForms[f] }); break; }
+      }
+      p += n || 1;
+    }
+    return out;
+  }
+  function bindLib(c) {
+    var L = libFor(c), box = document.getElementById("tabc"), q = box.querySelector(".lib-q"), k = "", G = D.libGloss || [];
+    var items = box.querySelectorAll(".lib-item"), txt = L.map(function (x) { return [x.id, x.t, x.zh, x.desc].join(" ").toLowerCase(); });
+    var tag = L.map(function (x) { var o = {}; (x.g || []).forEach(function (j) { o[j] = 1; }); return o; });
+    function hit(i, w, segs) {   // 原字直接出現,或每個切出的詞都對到(中日原文 / 英文 tag / 英文出現在標題介紹)
+      return txt[i].indexOf(w) >= 0 || (segs.length > 0 && segs.every(function (s) {
+        return txt[i].indexOf(s.src) >= 0 || s.ids.some(function (j) {
+          return tag[i][j] || G[j][0].some(function (e) { return txt[i].indexOf(e.toLowerCase()) >= 0; });
+        });
+      }));
+    }
+    function apply() {   // 空白分開的每個詞都要出現
+      var ws = q.value.toLowerCase().split(/\s+/).filter(Boolean), n = 0, tr = [];
+      var segs = ws.map(function (w) {
+        var s = libTrans(w);
+        if (LIBCJK.test(w)) s.forEach(function (x) { tr.push(x.src + " → " + x.ids.map(function (j) { return G[j][0][0]; }).join(" / ")); });
+        return s;
+      });
+      L.forEach(function (x, i) {
+        var on = (!k || x.kind === k) && ws.every(function (w, wi) { return hit(i, w, segs[wi]); });
+        items[i].hidden = !on; if (on) n++;
+      });
+      box.querySelector(".lib-n").textContent = "顯示 " + n + " / " + L.length + " 份" + (tr.length ? "　自動翻譯：" + tr.join("、") : "");
+    }
+    q.addEventListener("input", apply);
+    box.querySelector(".lib-bar .chips").addEventListener("click", function (e) {
+      var b = e.target.closest(".lib-f"); if (!b) return;
+      k = b.dataset.k;
+      [].forEach.call(box.querySelectorAll(".lib-f"), function (x) { x.classList.toggle("active", x === b); });
+      apply();
+    });
+    apply();
+  }
+  // 給 AI 助教的精簡清單(約 8k token):規格書只給型號、中文只留第一句、網址共同前綴只寫一次
+  var LIBDS = LIBP + "physik_instrumente/files/datasheets/";
+  function libCtx(c) {
+    var L = libFor(c); if (!L.length) return "";
+    return "\n\n【PI 資料庫(可推薦)】\n網址:每行最後的路徑若以 ds/ 開頭,完整網址 = " + LIBDS + " + ds/ 後面的檔名;其他 = " + LIBP + " + 路徑。\n" +
+      L.map(function (x) {
+        return "- " + LIBK[x.kind] + "|" + (x.kind === "DS" ? x.id : x.t) + "|" + String(x.zh || "").split("｜")[0] + "|" +
+          (x.url.indexOf(LIBDS) === 0 ? "ds/" + x.url.slice(LIBDS.length) : x.url.replace(LIBP, ""));
+      }).join("\n");
+  }
+
   /* ---------- search ---------- */
   var sidx = null;
   function buildIndex() {
@@ -859,7 +960,7 @@
         return '<a class="result" href="' + x.href + '"><b>' + x.ctitle + "</b> › " + esc(x.title) + '<span class="snip">…' + esc(snip) + "…</span></a>";
       }).join("") + "</div>" : '<p class="empty">查無結果。</p>');
   });
-  main.addEventListener("click", function (e) { if (e.target.closest(".result")) search.value = ""; });
+  main.addEventListener("click", function (e) { var r = e.target.closest(".result"); if (r && r.getAttribute("href") === location.hash) { search.value = ""; route(); } });  // 同頁結果不會觸發 hashchange
 
   /* ---------- 字體大小(記在瀏覽器) ---------- */
   var ZKEY = "stust_zoom";
@@ -884,89 +985,11 @@
   var themeBtn = document.getElementById("theme-btn");
   if (themeBtn) themeBtn.onclick = function () { setTheme({ auto: "light", light: "dark", dark: "auto" }[themeBtn.dataset.mode]); };
 
-  /* ---------- 作者登入(公開版用;本機版有 private.js 就不需要) ----------
-     assets/v.dat 是 publish.py 用 AES-256-GCM 加密的論文對照;金鑰 = PBKDF2(學號大寫 + "\n" + 密碼)。
-     入口不顯示在畫面上(使用者自訂的隱藏手勢);記住裝置時只存推導出的金鑰,登出即清除。 */
-  var AKEY = "stust_ak", AUTH_TAPS = 15, AUTH_GAP = 800;
+  /* ---------- localStorage 小工具(AI 助教用) ---------- */
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
-  function b64d(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
-  function b64e(buf) { var u = new Uint8Array(buf), s = ""; for (var i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); }
-  var vaultP = null;
-  function loadVault() {
-    if (!vaultP) vaultP = fetch("assets/v.dat", { cache: "no-cache" }).then(function (r) { if (!r.ok) throw new Error("no vault"); return r.json(); });
-    vaultP.catch(function () { vaultP = null; });
-    return vaultP;
-  }
-  function deriveKey(id, pw, v) {
-    var enc = new TextEncoder();
-    return crypto.subtle.importKey("raw", enc.encode(id.trim().toUpperCase() + "\n" + pw), "PBKDF2", false, ["deriveBits"]).then(function (k) {
-      return crypto.subtle.deriveBits({ name: "PBKDF2", salt: b64d(v.salt), iterations: v.iter, hash: "SHA-256" }, k, 256);
-    });
-  }
-  function openVault(raw, v) {
-    return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]).then(function (k) {
-      return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64d(v.iv) }, k, b64d(v.ct));
-    }).then(function (buf) { return JSON.parse(new TextDecoder().decode(buf)); });
-  }
-  var canCrypto = !!(window.crypto && crypto.subtle && window.TextEncoder);
-  // 記住裝置:啟動時自動解開(金鑰對不上就清掉,例如換過密碼)
-  if (!PRIV && canCrypto && lsGet(AKEY)) {
-    loadVault().then(function (v) { return openVault(b64d(lsGet(AKEY)), v); })
-      .then(function (d) { PRIV = d; route(); })
-      .catch(function (e) { if (e && e.name === "OperationError") lsDel(AKEY); });
-  }
-  function closeAuth() { var m = document.getElementById("authm"); if (m) m.remove(); }
-  function showAuth() {
-    closeAuth();
-    var m = document.createElement("div");
-    m.id = "authm"; m.className = "auth-ov";
-    var body;
-    if (window.PRIVATE) body = '<p class="auth-msg">本機版已直接顯示論文對照,不需要登入。</p><div class="auth-acts"><button class="btn" data-a="close">關閉</button></div>';
-    else if (PRIV) body = '<p class="auth-msg">✅ 已登入作者模式</p><div class="auth-acts"><button class="btn ghost" data-a="logout">登出</button><button class="btn" data-a="close">關閉</button></div>';
-    else body = '<form class="auth-f"><label>帳號<input name="uid" autocomplete="username" autocapitalize="characters" required></label>' +
-      '<label>密碼<input name="pw" type="password" autocomplete="current-password" required></label>' +
-      '<label class="auth-rm"><input name="rm" type="checkbox" checked> 記住這台裝置</label>' +
-      '<p class="auth-msg" id="authmsg"></p><div class="auth-acts"><button type="button" class="btn ghost" data-a="close">取消</button><button class="btn" type="submit">登入</button></div></form>';
-    m.innerHTML = '<div class="auth-box" role="dialog" aria-modal="true"><div class="auth-t">作者登入</div>' + body + "</div>";
-    document.body.appendChild(m);
-    m.addEventListener("click", function (e) {
-      if (e.target === m) return closeAuth();
-      var a = e.target.closest("[data-a]"); if (!a) return;
-      if (a.dataset.a === "logout") { lsDel(AKEY); PRIV = null; route(); }
-      closeAuth();
-    });
-    var f = m.querySelector("form"); if (!f) return;
-    f.elements.uid.focus();
-    f.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var msg = document.getElementById("authmsg"), btn = f.querySelector('button[type="submit"]');
-      if (!canCrypto) { msg.textContent = "這個瀏覽器不支援,請改用 Chrome 或 Safari。"; return; }
-      btn.disabled = true; msg.textContent = "驗證中…";
-      var v0;
-      loadVault().then(function (v) { v0 = v; return deriveKey(f.elements.uid.value, f.elements.pw.value, v); })
-        .then(function (raw) { return openVault(raw, v0).then(function (d) { return [raw, d]; }); })
-        .then(function (r) {
-          if (f.elements.rm.checked) lsSet(AKEY, b64e(r[0]));
-          PRIV = r[1]; closeAuth(); route();
-        })
-        .catch(function () { msg.textContent = "登入失敗"; btn.disabled = false; f.elements.pw.value = ""; });
-    });
-  }
-  // 隱藏入口(手勢細節只記在本機,不寫進同步檔)
-  (function () {
-    var n = 0, last = 0;
-    document.addEventListener("click", function (e) {
-      var el = e.target.closest(".chead h1"), hk = el && el.querySelector(".hk");
-      if (!hk) return;
-      var rc = hk.getBoundingClientRect();
-      if (e.clientX > rc.right + 4 || e.clientY < rc.top - 12 || e.clientY > rc.bottom + 12) { n = 0; return; }
-      var now = Date.now(); n = now - last < AUTH_GAP ? n + 1 : 1; last = now;
-      if (n >= AUTH_TAPS) { n = 0; showAuth(); }
-    });
-  })();
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeAuth(); });
+  lsDel("stust_ak");   // 2026-10-30 起停用的舊功能留下的裝置金鑰,清掉
 
   /* ---------- 🎓 AI 助教 ----------
      A 轉交:組好「規則 + 本章教材 + 問題」開 Claude / ChatGPT(免費,完整教材另複製到剪貼簿)
@@ -982,14 +1005,14 @@
                ["📝 出 5 題練習", "請依這一章出 5 題練習(2 題觀念、2 題計算、1 題應用),由淺到深,每題標出對應的公式。先只出題目,解答統一放在最後的「解答」段落,讓我先自己作答。"]];
   var T = { open: false, c: null, si: 0, msgs: [], busy: false, sdk: null, owner: false };
   var tutorBtn = document.createElement("button"), tutorBox = document.createElement("aside");
-  tutorBtn.id = "tutor-btn"; tutorBtn.className = "hidden"; tutorBtn.textContent = "🎓 AI 助教";
+  tutorBtn.id = "tutor-btn"; tutorBtn.className = "hidden"; tutorBtn.innerHTML = '🎓<span class="tb-t"> AI 助教</span>'; tutorBtn.setAttribute("aria-label", "AI 助教");
   tutorBox.id = "tutor"; tutorBox.className = "hidden"; tutorBox.setAttribute("aria-label", "AI 助教");
   document.body.appendChild(tutorBtn); document.body.appendChild(tutorBox);
 
   function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
   function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
   function ssDel(k) { try { sessionStorage.removeItem(k); } catch (e) {} }
-  function tutorOwner() { return !!(PRIV && PRIV.claudeKey); }   // 作者登入後(或本機版)用作者自己的金鑰
+  function tutorOwner() { return !!(PRIV && PRIV.claudeKey); }   // 本機版(private.js 有金鑰)用作者自己的金鑰
   function tutorKey() { return (PRIV && PRIV.claudeKey) || ssGet(TK) || lsGet(TK) || ""; }
   function tutorModel() { var m = lsGet(TM); return MODELS.some(function (x) { return x[0] === m; }) ? m : MODELS[0][0]; }
   function tutorEl(sel) { return tutorBox.querySelector(sel); }
@@ -1014,7 +1037,8 @@
       "3. 先引導再給答案:學生問題目時先給提示並問他下一步;學生已經嘗試過或明確要求時,才給完整解。\n" +
       "4. 計算要寫單位,每一步說明理由;不確定就說不確定,不要編造數字或出處。\n" +
       "5. 數學式用 LaTeX:行內 $...$,獨立一行用 $$...$$。\n" +
-      "6. 你自己出的練習題,答案放在最後,並註明「AI 即時產生,未經驗算」。";
+      "6. 你自己出的練習題,答案放在最後,並註明「AI 即時產生,未經驗算」。" +
+      (libFor(c).length ? "\n7. 學生想深入,或問到應用、產品、規格時,從【PI 資料庫】挑最多 3 份最相關的推薦,說明為什麼值得看,並附完整網址;只能推薦清單裡的文件,不可自己編文件或網址。" : "");
   }
   function tutorContext(c, si) {
     var st = c.steps[si] || {}, note = String((c.notes[st.noteIndex] || {}).content || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "[圖]");
@@ -1027,7 +1051,7 @@
     return "【本章教材】\n【課程】" + c.title + (c.subtitle ? "(" + c.subtitle + ")" : "") +
       "\n【章節】第 " + (st.step || si + 1) + " 章 " + (st.title || "") + (st.ref ? "(出處:" + st.ref + ")" : "") +
       (f ? "\n\n【本章公式】\n" + f : "") + "\n\n【本章筆記】\n" + note +
-      (ps ? "\n\n【本章例題(只有題目)】\n" + ps : "") + (g ? "\n\n【相關術語】\n" + g : "");
+      (ps ? "\n\n【本章例題(只有題目)】\n" + ps : "") + (g ? "\n\n【相關術語】\n" + g : "") + libCtx(c);
   }
 
   // A 轉交:網址 ?q= 有長度上限,只帶短版;完整教材複製到剪貼簿,需要時貼上
@@ -1115,12 +1139,13 @@
       }).join("") + "</select></label>" +
       '<div class="tt-quick">' + QUICK.map(function (x, i) { return '<button class="pbtn" data-q="' + i + '">' + x[0] + "</button>"; }).join("") + "</div>" +
       '<div class="tt-log"></div>' +
-      '<textarea class="tt-in" rows="3" placeholder="問這一章的任何問題…(Ctrl+Enter 送出)"></textarea>' +
-      '<div class="tt-acts"><button class="btn tt-send">送出' + (key ? "" : "(需要金鑰)") + '</button>' +
-      '<button class="pbtn tt-ho" data-w="claude">用 Claude 開啟</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button></div>' +
+      '<textarea class="tt-in" rows="3" placeholder="問這一章的任何問題…' + (matchMedia("(max-width:820px), (pointer:coarse)").matches ? "" : "(Ctrl+Enter 送出)") + '"></textarea>' +
+      (key  // 沒金鑰時免費轉交當主按鈕
+        ? '<div class="tt-acts"><button class="btn tt-send">送出</button><button class="pbtn tt-ho" data-w="claude">用 Claude 開啟</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button></div>'
+        : '<div class="tt-acts"><button class="btn tt-ho" data-w="claude">用 Claude 開啟(免費)</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button><button class="pbtn tt-send">用自己的金鑰送出</button></div>') +
       (tutorOwner()
-        ? '<div class="tt-owner"><div><b>🔑 作者模式</b>:使用你自己的 Claude(金鑰跟作者登入一起加密保存,不會顯示)。</div>' + modelSel + "</div>"
-        : '<details class="tt-set"' + (key ? "" : " open") + '><summary>⚙ 設定:自備 Anthropic API 金鑰 ' + (key ? "(已設定 …" + esc(key.slice(-4)) + ")" : "(未設定)") + "</summary>" +
+        ? '<div class="tt-owner"><div><b>🔑 作者模式</b>:使用你自己的 Claude(金鑰只在本機 private.js,不會顯示也不會發布)。</div>' + modelSel + "</div>"
+        : '<details class="tt-set"><summary>⚙ 設定:自備 Anthropic API 金鑰 ' + (key ? "(已設定 …" + esc(key.slice(-4)) + ")" : "(未設定)") + "</summary>" +
           '<input type="password" class="tt-key" placeholder="貼上 sk-ant-… 金鑰" autocomplete="off">' +
           '<label class="tt-rm"><input type="checkbox"' + (lsGet(TK) ? " checked" : "") + '> 記住在這台電腦(公用電腦請不要勾)</label>' + modelSel +
           '<div class="tt-acts"><button class="pbtn tt-save">儲存金鑰</button>' + (key ? '<button class="pbtn tt-clear">清除金鑰</button>' : "") +
@@ -1150,7 +1175,10 @@
   tutorBox.addEventListener("keydown", function (e) { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.classList.contains("tt-in")) { e.preventDefault(); tutorAsk(); } });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && T.open) tutorShow(false); });
 
-  window.addEventListener("hashchange", route);
+  // 手機分頁列右邊還有分頁時,顯示漸層＋›
+  function tabMore() { var b = main.querySelector(".tabbar"); if (b) b.parentNode.classList.toggle("more", b.scrollLeft + b.clientWidth < b.scrollWidth - 4); }
+  window.addEventListener("resize", tabMore);
+  window.addEventListener("hashchange", function () { search.value = ""; route(); });  // 換頁就離開搜尋結果
   renderNav();
   route();
 })();
