@@ -19,7 +19,8 @@
     var html = null;
     try { if (window.marked) html = marked.parse ? marked.parse(s, br ? { breaks: true } : undefined) : marked(s); } catch (e) {}
     if (html === null) html = "<pre>" + esc(s) + "</pre>";
-    return html.replace(/@@MATH(\d+)@@/g, function (_, i) { return esc(maths[+i]); });
+    // 筆記裡手寫的 <details>(自我測驗的參考答案)也用同一個 chevron,不用瀏覽器的 ▸
+    return html.replace(/@@MATH(\d+)@@/g, function (_, i) { return esc(maths[+i]); }).replace(/<summary>/g, function () { return "<summary>" + sumChev(); });
   }
   // MathJax 排版(效能):全部排隊執行、每批約 40 個公式後讓出主執行緒,大頁面不再一次凍住數秒;
   // 帶 tex2jax_ignore 的區塊先跳過,等 typesetLazy() 捲到附近才排
@@ -66,9 +67,50 @@
         return MathJax.typesetPromise(batch).then(function () { return new Promise(function (r) { setTimeout(r, 0); }); }).then(next);
       }
       return next();
-    }).catch(function () {});
+    }).then(function () { if (el.isConnected) { mjNowrap(el); xsScan(el); } }).catch(function () {});
     return mjq;
   }
+  // 行內公式和緊接的標點包在一起不換行(句點不會單獨掉到下一行);display 公式不動
+  var MJ_PUNCT = /^[.,;:!?、，。；：！？）)」』]+/;
+  function mjWrap(c) {
+    if (c.parentNode.classList.contains("mjx-nb")) return c.parentNode;
+    var w = document.createElement("span"); w.className = "mjx-nb";
+    c.parentNode.insertBefore(w, c); w.appendChild(c);
+    return w;
+  }
+  function mjNowrap(el) {
+    if (!el.querySelectorAll) return;
+    [].forEach.call(el.querySelectorAll('mjx-container:not([display="true"])'), function (c) {
+      var n = c.nextSibling, m = n && n.nodeType === 3 && MJ_PUNCT.exec(n.nodeValue);
+      if (!m || c.parentNode.classList.contains("mjx-nb")) return;
+      if (m[0].length < n.nodeValue.length) n.splitText(m[0].length);
+      mjWrap(c).appendChild(n);
+    });
+  }
+  // 題目裡比題卡寬的公式(手機):只讓那個公式自己左右滑,右緣淡出提示,捲到底就拿掉
+  function xsHint(el) { el.classList.toggle("xs", el.scrollWidth > el.clientWidth + 1 && el.scrollLeft + el.clientWidth < el.scrollWidth - 2); }
+  var XS = ".prob-q, .prob-sol, .prob-plain, .prob-hints li";   // 題目、詳解(含答案與常見錯誤)、白話、提示
+  function xsScan(root) {
+    if (!root || !root.querySelectorAll) return;
+    var qs = root.matches(XS) ? [root] : [].slice.call(root.querySelectorAll(XS)), wide = [], boxes = [];
+    qs.forEach(function (q) {
+      if (!q.offsetParent) return;
+      [].forEach.call(q.querySelectorAll('mjx-container:not([display="true"])'), function (c) {   // 先全部量完再改 class
+        var b = c.parentNode.classList.contains("mjx-nb") ? c.parentNode : c, blk = c.closest("p,li,td,th," + XS);
+        if (getComputedStyle(blk).display === "inline") blk = blk.parentElement.closest("li,td,th," + XS);   // 白話的 <p> 是 inline,寬度要量外層
+        var w = b.classList.contains("mx-x") ? b.scrollWidth > b.clientWidth + 1 : b.offsetWidth > blk.clientWidth + 1, bs = getComputedStyle(blk);
+        // 沒比題卡寬、只是從行中間開始又不換行(Firefox 不在不換行的 span 前斷行)而超出右緣
+        wide.push([c, w, !w && b.getBoundingClientRect().right > blk.getBoundingClientRect().right - parseFloat(bs.paddingRight) - parseFloat(bs.borderRightWidth) + 1]);
+      });
+      [].push.apply(boxes, q.querySelectorAll('mjx-container[display="true"]'));
+    });
+    // mx-x:比題卡寬,自己左右滑;mx-b:改成 inline-block,前面一定可以斷行,整段換到下一行(加了就不拿掉,免得 resize 時來回跳)
+    wide.forEach(function (w) { var b = w[1] || w[2] ? mjWrap(w[0]) : w[0].parentNode; if (b.classList.contains("mjx-nb")) { b.classList.toggle("mx-x", w[1]); if (w[2]) b.classList.add("mx-b"); } if (w[1]) boxes.push(b); });
+    qs.forEach(function (q) { [].forEach.call(q.querySelectorAll(".mjx-nb.xs:not(.mx-x)"), function (b) { b.classList.remove("xs"); }); });
+    boxes.forEach(xsHint);
+  }
+  document.addEventListener("scroll", function (e) { var t = e.target; if (t.matches && t.matches(".mx-x, mjx-container") && t.closest(XS)) xsHint(t); }, true);
+  window.addEventListener("resize", function () { xsScan(document.getElementById("main")); });
   // 只排版捲到畫面附近的區塊(其餘標 tex2jax_ignore 先跳過);after(el) 在該區塊排完後呼叫
   function typesetLazy(root, sel, after) {
     var els = [].slice.call(root.querySelectorAll(sel));
@@ -110,6 +152,7 @@
     menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
     moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
     sunmoon: '<path d="M12 8a2.83 2.83 0 0 0 4 4 4 4 0 1 1-4-4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.3 17.7-1.4 1.4"/><path d="m19.1 4.9-1.4 1.4"/>',
@@ -119,11 +162,35 @@
     cap: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
     copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     "chev-l": '<path d="m15 18-6-6 6-6"/>',
-    "chev-r": '<path d="m9 18 6-6-6-6"/>'
+    "chev-r": '<path d="m9 18 6-6-6-6"/>',
+    "chev-d": '<path d="m6 9 6 6 6-6"/>',
+    msg: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    bulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+    book: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>'
   };
   function ico(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + ICONS[n] + "</svg>"; }
+  function sumChev() { return '<span class="sum-chev">' + ico("chev-d") + "</span>"; }   // 收合標題前的箭頭(取代瀏覽器的 ▸)
   [].forEach.call(document.querySelectorAll("[data-ic]"), function (el) { el.innerHTML = ico(el.dataset.ic); });  // index.html 的固定按鈕
   var EXT = " " + ico("ext");  // 外部連結
+  // LINE 內建瀏覽器:開的是聊天裡貼的網址,而且 Claude / ChatGPT 的 Google 登入會被擋 → 提示改用預設瀏覽器
+  var IS_LINE = /\bLine\//i.test(navigator.userAgent), LINE_MSG = "在 LINE 裡有些功能受限，點右上角選單 → 用預設瀏覽器開啟";
+  // 目前網址加 openExternalBrowser=1(LINE 看到會改用外部瀏覽器開),hash 保留
+  function lineExtUrl() { var u = new URL(location.href); u.searchParams.set("openExternalBrowser", "1"); return u.href; }
+  (function lineTip() {
+    var el = document.getElementById("line-tip"), app = document.getElementById("app"), off = false;
+    try { off = localStorage.getItem("stust_line_tip") === "off"; } catch (e) {}
+    if (!IS_LINE || off || !el) return;
+    el.innerHTML = ico("info") + '<span class="lt-t">' + LINE_MSG + '<a class="lt-go" href="#">' + ico("ext") + " 用瀏覽器開</a></span>" +
+      '<button class="lt-x" aria-label="關閉提示">' + ico("x") + "</button>";
+    el.classList.remove("hidden"); app.classList.add("line-on");
+    var go = el.querySelector(".lt-go"); go.href = lineExtUrl();
+    go.addEventListener("click", function () { go.href = lineExtUrl(); });   // 切分頁用 replaceState 不會觸發 hashchange,按下當下再取一次
+    window.addEventListener("hashchange", function () { go.href = lineExtUrl(); });
+    el.querySelector(".lt-x").addEventListener("click", function () {
+      el.classList.add("hidden"); app.classList.remove("line-on");
+      try { localStorage.setItem("stust_line_tip", "off"); } catch (e) {}
+    });
+  })();
   // 私人對照的標籤可能自帶 emoji,顯示前拿掉(資料本身不動)
   function noEmo(s) { return String(s).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]\s*/gu, "").trim(); }
   function byId(id) { for (var i = 0; i < D.courses.length; i++) if (D.courses[i].id === id) return D.courses[i]; return null; }
@@ -145,8 +212,8 @@
   var LB = { list: [], idx: 0 };
   var lb = document.getElementById("lightbox"), lbImg = document.getElementById("lb-img"), lbCap = document.getElementById("lb-cap");
   function lbShow() { var it = LB.list[LB.idx]; if (!it) return; lbImg.src = it.url; lbCap.textContent = (it.caption ? it.caption + " — " : "") + (it.src || "") + (it.page ? " p." + it.page : "") + "  (" + (LB.idx + 1) + "/" + LB.list.length + ")"; }
-  function openLB(list, idx) { LB.list = list; LB.idx = idx; lb.classList.remove("hidden"); lbShow(); }
-  function closeLB() { lb.classList.add("hidden"); lbImg.src = ""; }
+  function openLB(list, idx, back) { LB.list = list; LB.idx = idx; LB.back = back || document.activeElement; lb.classList.remove("hidden"); lbShow(); document.getElementById("lb-close").focus(); }
+  function closeLB() { lb.classList.add("hidden"); lbImg.src = ""; if (LB.back && LB.back.focus) LB.back.focus(); LB.back = null; }  // 焦點還給點開燈箱的元素
   function lbStep(d) { if (!LB.list.length) return; LB.idx = (LB.idx + d + LB.list.length) % LB.list.length; lbShow(); }
   document.getElementById("lb-close").onclick = closeLB;
   document.getElementById("lb-prev").onclick = function () { lbStep(-1); };
@@ -154,33 +221,62 @@
   lb.addEventListener("click", function (e) { if (e.target === lb) closeLB(); });
   document.addEventListener("keydown", function (e) {
     if (lb.classList.contains("hidden")) return;
-    if (e.key === "Escape") closeLB(); else if (e.key === "ArrowLeft") lbStep(-1); else if (e.key === "ArrowRight") lbStep(1);
+    if (e.key === "Tab") {   // focus trap:Tab / Shift+Tab 只在燈箱的按鈕間循環
+      var fs = [].filter.call(lb.querySelectorAll("button, a[href]"), function (x) { return x.getClientRects().length > 0; });
+      var i = fs.indexOf(document.activeElement);
+      e.preventDefault(); if (fs.length) fs[(i < 0 ? 0 : i + (e.shiftKey ? fs.length - 1 : 1)) % fs.length].focus();
+      return;
+    }
+    if (e.key === "Escape") { closeLB(); e.stopImmediatePropagation(); }   // 只關燈箱,AI 助教面板留著
+    else if (e.key === "ArrowLeft") lbStep(-1); else if (e.key === "ArrowRight") lbStep(1);
   });
 
   /* ---------- sidebar ---------- */
   function renderNav() {
     nav.innerHTML = D.courses.map(function (c) {
       var pr = courseProg(c), tag = pr.total ? '<span class="mini-prog">' + pr.pct + "%</span>" : "";
-      return '<a class="cnav" data-id="' + c.id + '"><span class="dot s-' + c.status + '"></span>' + c.title + tag + "</a>";
+      return '<a class="cnav" href="#/c/' + encodeURIComponent(c.id) + '" data-id="' + c.id + '"><span class="dot s-' + c.status + '"></span>' + c.title + tag + "</a>";
     }).join("");
   }
-  nav.addEventListener("click", function (e) { var a = e.target.closest(".cnav"); if (a) location.hash = "#/c/" + encodeURIComponent(a.dataset.id); });
   function highlight() {
     var m = location.hash.match(/^#\/c\/([^/]+)/), id = m ? decodeURIComponent(m[1]) : null;
     [].forEach.call(document.querySelectorAll(".cnav"), function (a) { a.classList.toggle("active", a.dataset.id === id); });
   }
 
   /* 手機:選單鈕開關側欄抽屜 */
-  var sidebar = document.getElementById("sidebar"), menuBtn = document.getElementById("menu-btn");
-  function setMenu(open) { sidebar.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); }
-  menuBtn.addEventListener("click", function () { setMenu(!sidebar.classList.contains("open")); });
+  var sidebar = document.getElementById("sidebar"), menuBtn = document.getElementById("menu-btn"), searchBtn = document.getElementById("search-btn");
+  // 選單抽屜開著:半透明遮罩蓋住頁面、背景不能捲;搜尋模式不遮(結果顯示在主內容)
+  var lineTip = document.getElementById("line-tip");
+  var mask = document.createElement("div"); mask.id = "drawer-mask"; mask.className = "hidden"; document.body.appendChild(mask);
+  function setMenu(open, searching) {
+    sidebar.classList.toggle("open", open); sidebar.classList.toggle("searchmode", !!(open && searching));
+    menuBtn.setAttribute("aria-expanded", open && !searching); searchBtn.setAttribute("aria-expanded", !!(open && searching));
+    var m = !!(open && !searching); mask.classList.toggle("hidden", !m); document.documentElement.classList.toggle("menu-lock", m);
+    main.inert = m; lineTip.inert = m;     // 選單抽屜開著:Tab 不會跑到背後的頁面與 LINE 提示列
+    if (open && T.open) tutorShow(false);  // AI 面板(z-index 較高)會蓋住抽屜,先收起
+  }
+  mask.addEventListener("click", function () { setMenu(false); menuBtn.focus(); });
+  // 抽屜開著時視窗變寬(旋轉平板):桌機版沒有選單鈕,要先關掉,不然 main 一直是 inert
+  var narrow = matchMedia("(max-width:820px)"), onNarrow = function (e) { if (!e.matches) setMenu(false); };
+  if (narrow.addEventListener) narrow.addEventListener("change", onNarrow); else narrow.addListener(onNarrow);
+  document.addEventListener("keydown", function (e) {   // Esc 關抽屜,焦點回到打開它的鈕
+    if (e.key !== "Escape" || !sidebar.classList.contains("open") || !matchMedia("(max-width:820px)").matches) return;
+    var s = searchOpen(); setMenu(false); (s ? searchBtn : menuBtn).focus();
+  });
+  function searchOpen() { return sidebar.classList.contains("open") && sidebar.classList.contains("searchmode"); }
+  menuBtn.addEventListener("click", function () { setMenu(!sidebar.classList.contains("open") || searchOpen()); });
+  // 手機頂部列的搜尋鈕:打開抽屜但只留搜尋框;再按一下關閉
+  searchBtn.addEventListener("click", function () { if (searchOpen()) { search.blur(); setMenu(false); } else { setMenu(true, true); search.focus(); } });
 
   /* ---------- routing ---------- */
-  function route() {
-    setMenu(false);
+  function route() { setMenu(false); render(); }
+  function render() {  // 重畫目前網址的頁面(不動抽屜;搜尋字數不足時用它還原)
+    inSearch = false;
     tutorSync();
-    var m = location.hash.match(/^#\/c\/([^/]+)(?:\/(\w+))?(?:\/(\d+))?/);
-    if (m) renderCourse(decodeURIComponent(m[1]), m[2] || "steps", m[3] ? parseInt(m[3], 10) : 0);
+    // #/c/<課>/<分頁>/<數字 或 題目 id>/<數字>;第 3 段不是數字就當題目 id(例題深連結)
+    var m = location.hash.match(/^#\/c\/([^/]+)(?:\/(\w+))?(?:\/([^/]+))?(?:\/(\d+))?/);
+    var a3 = m && m[3] ? decodeURIComponent(m[3]) : "", num = /^\d+$/.test(a3);
+    if (m) renderCourse(decodeURIComponent(m[1]), m[2] || "steps", num ? parseInt(a3, 10) : 0, m[4] ? parseInt(m[4], 10) : null, num ? null : a3 || null);
     else renderHome();
     highlight();
   }
@@ -188,7 +284,7 @@
   var LOGO = (document.querySelector(".brand .logo") || {}).outerHTML || "";  // 與側欄同一份 SVG
   function renderHome() {
     main.innerHTML =
-      '<header class="chead"><h1 class="home-h1"><span class="hk">' + LOGO + 'st</span>ust<b>class</b> 互動學習網站</h1><p class="sub">六門課程 · 學習路徑 · 原教材例題專業詳解 · 術語註釋 · 互動測驗</p></header>' +
+      '<header class="chead"><h1 class="home-h1"><span class="hk">' + LOGO + 'st</span>ust<b>class</b> 互動學習網站</h1><p class="sub">' + ["六門課程", "學習路徑", "原教材例題專業詳解", "術語註釋", "互動測驗"].map(function (t) { return '<span class="nw">' + t + "</span>"; }).join(" · ") + '</p></header>' +
       '<div class="cards">' + D.courses.map(function (c) {
         var pr = courseProg(c);
         var prog = pr.total ? '<div class="progwrap"><div class="progbar" style="width:' + pr.pct + '%"></div></div><div class="progtxt">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + "%)</div>" : "";
@@ -204,7 +300,7 @@
   }
 
   /* ---------- course ---------- */
-  function renderCourse(id, tab, arg) {
+  function renderCourse(id, tab, arg, arg2, pid) {
     var c = byId(id); if (!c) return renderHome();
     var tabs = [["steps", "學習路徑"]];
     var np = allProblems(c).length;
@@ -218,19 +314,25 @@
     main.innerHTML =
       '<header class="chead"><div class="crumb"><a href="#/">首頁</a> / ' + c.title + "</div>" +
       "<h1>" + c.title + "</h1><p class='sub'>" + esc(c.subtitle || "") + "</p></header>" +
-      '<div class="tabwrap"><div class="tabbar">' + tabs.map(function (t) { return '<button class="tab" data-t="' + t[0] + '">' + t[1] + "</button>"; }).join("") +
-      '</div></div><div id="tabc"></div>';
+      '<div class="tabwrap"><div class="tabbar" role="tablist" aria-label="課程分頁" tabindex="-1">' + tabs.map(function (t) { return '<button class="tab" role="tab" id="tab-' + t[0] + '" aria-controls="tabc" aria-selected="false" tabindex="-1" data-t="' + t[0] + '">' + t[1] + "</button>"; }).join("") +
+      '</div></div><div id="tabc" role="tabpanel"></div>';
     var tabc = document.getElementById("tabc");
     var bar = main.querySelector(".tabbar");
     function show(t) {
-      [].forEach.call(main.querySelectorAll(".tab"), function (b) { b.classList.toggle("active", b.dataset.t === t); });
+      if (t !== tab) { tab = t; arg = 0; arg2 = pid = null; }   // 換分頁:網址只剩 /<分頁>,不沿用上一個分頁的編號
+      // roving tabindex:Tab 只停在選中的分頁一次,其餘用 ← →
+      var bs = [].slice.call(main.querySelectorAll(".tab")), cur = bs.filter(function (b) { return b.dataset.t === t; })[0];
+      bs.forEach(function (b) { var on = b === cur; b.classList.toggle("active", on); b.setAttribute("aria-selected", on ? "true" : "false"); b.tabIndex = on || (!cur && b === bs[0]) ? 0 : -1; });
+      // 沒有對應按鈕的分頁(舊連結 #/c/<課>/overview):不指向不存在的 tab-<t>
+      if (cur) { tabc.setAttribute("aria-labelledby", cur.id); tabc.removeAttribute("aria-label"); }
+      else { tabc.removeAttribute("aria-labelledby"); tabc.setAttribute("aria-label", t === "overview" ? "課程總覽" : "課程內容"); }
       if ((location.hash.match(/^#\/c\/[^/]+\/(\w+)/) || [])[1] !== t) history.replaceState(null, "", "#/c/" + encodeURIComponent(c.id) + "/" + t);
       var a = bar.querySelector(".tab.active");
       if (a && a.offsetLeft + a.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = a.offsetLeft - 24;  // 手機:選中的分頁在畫面外就捲過去
       if (t === "overview") tabc.innerHTML = tabOverview(c);
       else if (t === "notes") { tabc.innerHTML = tabNotes(c, arg); bindNotes(c); typeset(tabc).then(function () { annotateTerms(document.getElementById("notebody"), c); }); }
       else if (t === "quiz") { tabc.innerHTML = tabQuiz(c); bindQuiz(c); }
-      else if (t === "probs") { tabc.innerHTML = tabProblems(c); bindProblemTab(c, /\/probs\/\d+$/.test(location.hash) ? arg : null); }
+      else if (t === "probs") { tabc.innerHTML = tabProblems(c); var dl = /\/probs\/[^/]+(\/\d+)?$/.test(location.hash); bindProblemTab(c, dl && !pid ? arg : null, dl ? arg2 : null, dl ? pid : null); }
       else if (t === "embed") tabc.innerHTML = tabEmbed(c);
       else if (t === "thesis" && thesisFor(c)) { tabc.innerHTML = tabThesis(c); bindThesis(tabc); typeset(tabc); focusThesis(/\/thesis\/\d+$/.test(location.hash) ? arg : null); }
       else if (t === "lib") { tabc.innerHTML = tabLib(c); bindLib(c); }
@@ -238,6 +340,13 @@
       else { tabc.innerHTML = tabSteps(c); bindSteps(c, arg); typeset(tabc); }
     }
     bar.addEventListener("click", function (e) { var b = e.target.closest(".tab"); if (b) show(b.dataset.t); });
+    bar.addEventListener("keydown", function (e) {   // 分頁列:← → Home End 換分頁(tablist 的慣例)
+      var bs = [].slice.call(bar.querySelectorAll(".tab")), i = bs.indexOf(document.activeElement), j;
+      if (i < 0) return;
+      j = e.key === "ArrowRight" ? (i + 1) % bs.length : e.key === "ArrowLeft" ? (i - 1 + bs.length) % bs.length : e.key === "Home" ? 0 : e.key === "End" ? bs.length - 1 : -1;
+      if (j < 0) return;
+      e.preventDefault(); bs[j].focus(); show(bs[j].dataset.t);
+    });
     bar.addEventListener("scroll", tabMore);
     show(tab);
     tabMore();
@@ -250,7 +359,7 @@
     if (pr.total) h += '<div class="progwrap"><div class="progbar" style="width:' + pr.pct + '%"></div></div><div class="progtxt">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + "%)</div>";
     h += "<h3>主題</h3><div class='chips big'>" + c.topics.map(function (t) { return '<span class="chip">' + esc(t) + "</span>"; }).join("") + "</div>";
     if (c.crossLinks && c.crossLinks.length) h += "<h3>跨課關聯</h3><div class='chips'>" + c.crossLinks.map(function (x) { var t = byId(x); return '<a class="chip link" href="#/c/' + x + '">' + (t ? t.title : x) + "</a>"; }).join("") + "</div>";
-    if (c.appliesTo) h += '<p class="note">' + esc(c.appliesTo) + "</p>";
+    if (c.appliesTo) h += '<p class="note">' + ico("info") + " " + esc(c.appliesTo) + "</p>";
     if (c.todo) h += '<p class="note warn">' + ico("alert") + " " + esc(c.todo) + "</p>";
     return h;
   }
@@ -262,9 +371,11 @@
     var nF = 0;
     c.steps.forEach(function (s) { nF += (s.formulas || []).length; });
     var h = '<div class="course-head"><p class="lead">' + esc(c.summary) + "</p>" +
+      (c.appliesTo ? '<p class="note">' + ico("info") + " " + esc(c.appliesTo) + "</p>" : "") +
+      (c.todo ? '<p class="note warn">' + ico("alert") + " " + esc(c.todo) + "</p>" : "") +
       '<div class="progtxt" id="stepprog">學習進度 ' + pr.done + "/" + pr.total + " (" + pr.pct + '%)</div><div class="progwrap"><div class="progbar" id="stepbar" style="width:' + pr.pct + '%"></div></div>';
     if (nF) {
-      h += lazyDetails("cheat", "公式速查（" + nF + " 式，附符號說明）", function () {
+      h += lazyDetails("cheat", sumChev() + "公式速查（" + nF + " 式，附符號說明）", function () {
         return c.steps.map(function (s) {
           if (!s.formulas || !s.formulas.length) return "";
           return '<div class="fgroup"><div class="fg-t">第 ' + s.step + " 章 · " + esc(s.title) + "</div>" + s.formulas.map(formulaHtml).join("") + "</div>";
@@ -272,7 +383,7 @@
       });
       var nSym = {};
       c.steps.forEach(function (s) { (s.formulas || []).forEach(function (f) { (f.vars || []).forEach(function (v) { nSym[String(v.s).replace(/\s+/g, "")] = 1; }); }); });
-      if (Object.keys(nSym).length) h += lazyDetails("cheat symidx", "全課符號總表（" + Object.keys(nSym).length + " 個符號）", function () {
+      if (Object.keys(nSym).length) h += lazyDetails("cheat symidx", sumChev() + "全課符號總表（" + Object.keys(nSym).length + " 個符號）", function () {
         var full = symbolIndexHtml(c);
         return full.slice(full.indexOf("</summary>") + 10, full.lastIndexOf("</details>"));
       });
@@ -283,10 +394,11 @@
       var hasImg = s.images && s.images.length;
       var meta = [s.noteIndex >= 0 ? "筆記" : "", s.problems && s.problems.length ? "例題 ×" + s.problems.length : "", hasImg ? "投影片 ×" + s.images.length : ""].filter(Boolean).join(" · ");
       return '<div class="step' + (done ? " done" : "") + '" data-i="' + i + '">' +
-        '<div class="step-head"><span class="step-no">' + (done ? ico("check") : s.step) + "</span>" +
-        '<span class="step-title">' + esc(s.title) + '<span class="step-meta">' + meta + "</span></span>" +
+        // .step-head 是點擊區;鍵盤 / 讀屏的按鈕只包章號與標題,「完成」勾選框在按鈕外面
+        '<div class="step-head"><div class="step-hb" role="button" tabindex="0" aria-expanded="false" aria-controls="sb' + i + '"><span class="step-no">' + (done ? ico("check") : s.step) + "</span>" +
+        '<span class="step-title">' + esc(s.title) + '<span class="step-meta">' + meta + "</span></span></div>" +
         '<label class="step-chk"><input type="checkbox" ' + (done ? "checked" : "") + ' data-chk="' + i + '"> 完成</label>' +
-        '<span class="step-toggle">▾</span></div>' +
+        '<span class="step-toggle" aria-hidden="true">' + ico("chev-d") + "</span></div>" +
         '<div class="step-body collapsed" id="sb' + i + '"></div></div>';
     }).join("") + "</div>";
     return h;
@@ -296,7 +408,7 @@
     return '<div class="slides"><div class="sl-t">' + title + '</div><div class="thumbs">' +
       arr.map(function (im, k) {
         var cap = im.caption ? im.caption : (im.src + " p." + im.page);
-        return '<div class="thumb" data-gal="' + gal + '" data-k="' + k + '"><img loading="lazy" src="' + im.url + '" alt=""><div class="cap">' + esc(cap) + "</div></div>";
+        return '<div class="thumb" tabindex="0" role="button" aria-label="放大:' + attr(cap) + '" data-gal="' + gal + '" data-k="' + k + '"><img loading="lazy" src="' + im.url + '" alt=""><div class="cap">' + esc(cap) + "</div></div>";
       }).join("") + "</div></div>";
   }
   function inl(t) { return md(t).replace(/^<p>|<\/p>\s*$/g, ""); }
@@ -335,7 +447,7 @@
     if (!order.length) return "";
     function key(k) { return (/^\\[a-zA-Z]/.test(k) ? "1" : "0") + k.replace(/[\\{}_^]/g, "").toLowerCase(); }
     order.sort(function (a, b) { return key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0; });
-    return '<details class="cheat symidx"><summary>全課符號總表（' + order.length + ' 個符號）</summary>' +
+    return '<details class="cheat symidx"><summary>' + sumChev() + '全課符號總表（' + order.length + ' 個符號）</summary>' +
       '<input class="sym-q" type="search" placeholder="找符號或中文,例如 阻尼、omega、質量">' +
       '<table class="fvars"><thead><tr><th>符號</th><th>意思</th><th>單位</th><th>章</th></tr></thead>' +
       order.map(function (k) {
@@ -365,12 +477,12 @@
     var P = thesisFor(c), LB = P.labels || {}, h = "";
     h += '<div class="th-head"><div class="th-lock">作者專用:只在本機顯示,不會發布到公開網站</div>' +
       "<h2>" + inl(P.title || "我的論文") + "</h2>" + (P.oneLine ? '<p class="sub">' + inl(P.oneLine) + "</p>" : "") + "</div>";
-    if (P.overview) h += lazyDetails("th-fold th-ovf", "總覽：這份論文在做什麼、這門課扮演什麼角色", function () { return '<div class="markdown-body">' + md(P.overview, true) + "</div>"; });
+    if (P.overview) h += lazyDetails("th-fold th-ovf", sumChev() + "總覽：這份論文在做什麼、這門課扮演什麼角色", function () { return '<div class="markdown-body">' + md(P.overview, true) + "</div>"; });
     var secs = P.sections || [];
     // 各節已收合成標題列,不再另列目錄
     if (secs.length) h += '<div class="th-all"><button class="btn ghost" data-thall="1">展開全部章節</button><button class="btn ghost" data-thall="0">收合全部</button></div>';
     if (P.symbolDiffs && P.symbolDiffs.length) {
-      h += '<details class="cheat th-diff"><summary>' + ico("alert") + ' 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
+      h += '<details class="cheat th-diff"><summary>' + sumChev() + ico("alert") + ' 論文寫法 ≠ 課程寫法(' + P.symbolDiffs.length + ")</summary>" +
         '<table class="fvars"><thead><tr><th>論文</th><th>課程</th><th>意思</th><th>出現在</th></tr></thead><tbody>' +
         P.symbolDiffs.map(function (d) {
           return "<tr><td>" + inl(d.thesis) + "</td><td>" + inl(d.course) + "</td><td>" + inl(d.meaning || "") + "</td><td>" + inl(d.where || "") + "</td></tr>";
@@ -385,24 +497,24 @@
       var h = "";
       if (x.summary) h += '<p class="th-sum">' + inl(x.summary) + "</p>";
       if (x.steps && x.steps.length) h += '<div class="chips">對應課程:' + x.steps.map(function (si) { return stepChip(c, si); }).join("") + "</div>";
-      else h += '<p class="note">此節不在本課範圍。</p>';
+      else h += '<p class="note">' + ico("info") + ' 此節不在本課範圍。</p>';
       // 細節全部收合:按了才產生內容並排版(手機上一節不再捲十幾個畫面)
       var fs = (x.formulas || []).filter(function (fr) { return findFormula(c, fr.step, fr.label); });
-      if (fs.length) h += lazyDetails("th-fold", "用到的課程公式（" + fs.length + "）", function () {
+      if (fs.length) h += lazyDetails("th-fold", sumChev() + "用到的課程公式（" + fs.length + "）", function () {
         return fs.map(function (fr) {
           return '<div class="th-f">' + formulaHtml(findFormula(c, fr.step, fr.label)) + (fr.use ? '<div class="th-use"><b>在你的論文裡:</b>' + inl(fr.use) + "</div>" : "") + "</div>";
         }).join("");
       });
-      if (x.symbols && x.symbols.length) h += lazyDetails("th-fold", "符號與數值（" + x.symbols.length + "）", function () {
+      if (x.symbols && x.symbols.length) h += lazyDetails("th-fold", sumChev() + "符號與數值（" + x.symbols.length + "）", function () {
         return '<table class="fvars th-sym"><thead><tr><th>符號</th><th>課程意思</th><th>在你的論文裡</th><th>數值</th></tr></thead><tbody>' +
           x.symbols.map(function (v) {
             return '<tr><td class="fs">' + inl(v.s) + "</td><td>" + inl(v.course || "") + "</td><td>" + inl(v.thesis || "") + inferredTag(v.inferred) +
               (v.diff ? '<div class="fnote">' + ico("alert") + " " + inl(v.diff) + "</div>" : "") + "</td><td>" + inl(v.value || "—") + (v.unit ? " " + esc(v.unit) : "") + "</td></tr>";
           }).join("") + "</tbody></table>";
       });
-      if (x.physics) h += lazyDetails("th-fold th-phy", esc(noEmo(LB.physics || "物理意義(白話)")), function () { return '<div class="markdown-body">' + md(x.physics, true) + "</div>"; });
-      if (x.check) h += lazyDetails("th-fold th-chk", esc(noEmo(LB.check || "數值合不合理")), function () { return '<div class="markdown-body">' + md(x.check, true) + "</div>"; });
-      if (x.notes) h += lazyDetails("th-fold th-nt", "資料來源與推定說明", function () { return '<p class="note">' + inl(x.notes) + "</p>"; });
+      if (x.physics) h += lazyDetails("th-fold th-phy", sumChev() + esc(noEmo(LB.physics || "物理意義(白話)")), function () { return '<div class="markdown-body">' + md(x.physics, true) + "</div>"; });
+      if (x.check) h += lazyDetails("th-fold th-chk", sumChev() + esc(noEmo(LB.check || "數值合不合理")), function () { return '<div class="markdown-body">' + md(x.check, true) + "</div>"; });
+      if (x.notes) h += lazyDetails("th-fold th-nt", sumChev() + "資料來源與推定說明", function () { return '<p class="note">' + ico("info") + " " + inl(x.notes) + "</p>"; });
       return h;
       };
     });
@@ -457,11 +569,11 @@
     var R = s.resources; if (!R) return "";
     var n = (R.top || []).length + (R.more || []).length + (R.data || []).length;
     if (!n) return "";
-    return lazyDetails("res-box", "延伸資源（" + n + "）· 外部講解與真實數據", function () {
+    return lazyDetails("res-box", sumChev() + "延伸資源（" + n + "）· 外部講解與真實數據", function () {
       var h = "";
       if (R.top && R.top.length) h += '<div class="res-h">最推薦</div><ul class="res-list">' + R.top.map(resItem).join("") + "</ul>";
       if (R.data && R.data.length) h += '<div class="res-h">真實數據（可下載）</div><ul class="res-list">' + R.data.map(resData).join("") + "</ul>";
-      if (R.more && R.more.length) h += lazyDetails("res-more", "更多資源（" + R.more.length + "）", function () {
+      if (R.more && R.more.length) h += lazyDetails("res-more", sumChev() + "更多資源（" + R.more.length + "）", function () {
         return '<ul class="res-list">' + R.more.map(resItem).join("") + "</ul>";
       });
       return h + '<p class="res-src">來源經「雙佐證」：GPT 上網搜尋 → Claude 逐筆開頁核對，只收錄核對通過的項目。</p>';
@@ -483,7 +595,7 @@
       h += '<div class="formulas"><div class="ft">重點公式(表格是每個符號的意思)</div>' + s.formulas.map(formulaHtml).join("") + "</div>";
     }
     if (s.noteIndex >= 0 && c.notes[s.noteIndex]) h += '<div class="markdown-body">' + md(c.notes[s.noteIndex].content) + "</div>";
-    else h += '<p class="note">本步驟重點見課程主筆記(見「筆記」分頁)。</p>';
+    else h += '<p class="note">' + ico("info") + ' 本步驟重點見課程主筆記(見「筆記」分頁)。</p>';
     h += galleryHtml("PDF 原圖(點圖放大,附說明)", s.figures, "fig");
     h += galleryHtml("投影片頁(點圖放大)", s.images, "img");
     if (s.pdfs && s.pdfs.length) {
@@ -521,10 +633,11 @@
       if (b) b.style.width = pr.pct + "%";
       renderNav();
     }
+    function setExp(i, open) { var h = cont.querySelector('.step[data-i="' + i + '"] .step-hb'); if (h) h.setAttribute("aria-expanded", open); }
     function toggle(stepEl, i) {
       var body = document.getElementById("sb" + i);
-      if (body.classList.contains("collapsed")) { if (!body.innerHTML) fill(body, i); body.classList.remove("collapsed"); }
-      else body.classList.add("collapsed");
+      if (body.classList.contains("collapsed")) { if (!body.innerHTML) fill(body, i); body.classList.remove("collapsed"); setExp(i, true); }
+      else { body.classList.add("collapsed"); setExp(i, false); }
     }
     function fill(body, i) {
       body.innerHTML = stepBodyHtml(c, c.steps[i], i);
@@ -534,7 +647,7 @@
     function openStep(i) {
       var st = cont.querySelector('.step[data-i="' + i + '"]'), body = document.getElementById("sb" + i); if (!st) return;
       if (!body.innerHTML) fill(body, i);
-      body.classList.remove("collapsed");
+      body.classList.remove("collapsed"); setExp(i, true);
       st.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     cont.addEventListener("click", function (e) {
@@ -544,7 +657,7 @@
       if (fin) {
         var fi = parseInt(fin.getAttribute("data-finish"), 10), box = cont.querySelector('input[data-chk="' + fi + '"]');
         if (box && !box.checked) { box.checked = true; setDone(c.id, fi, true); var se = cont.querySelector('.step[data-i="' + fi + '"]'); se.classList.add("done"); se.querySelector(".step-no").innerHTML = ico("check"); refreshProg(); }
-        document.getElementById("sb" + fi).classList.add("collapsed");
+        document.getElementById("sb" + fi).classList.add("collapsed"); setExp(fi, false);
         if (fi < c.steps.length - 1) openStep(fi + 1);
         return;
       }
@@ -553,18 +666,23 @@
       var head = e.target.closest(".step-head");
       if (head && !e.target.closest(".step-body, .step-chk")) { var i = parseInt(head.parentNode.getAttribute("data-i"), 10); toggle(head.parentNode, i); }
     });
+    cont.addEventListener("keydown", function (e) {  // 鍵盤:步驟標題 Enter / Space 展開收合
+      if ((e.key !== "Enter" && e.key !== " ") || !e.target.classList.contains("step-hb")) return;
+      var st = e.target.closest(".step"); e.preventDefault(); toggle(st, parseInt(st.getAttribute("data-i"), 10));
+    });
     // 預設展開第一步(或指定)
     var first = openIdx || 0;
     var fb = document.getElementById("sb" + first);
-    if (fb) { fill(fb, first); fb.classList.remove("collapsed"); }
+    if (fb) { fill(fb, first); fb.classList.remove("collapsed"); setExp(first, true); }
     if (first > 0) setTimeout(function () { openStep(first); }, 0);  // 等 renderCourse 的 scrollTo(0,0) 之後
   }
   function bindThumbs(body, s) {
     [].forEach.call(body.querySelectorAll(".thumb"), function (el) {
       el.addEventListener("click", function () {
         var gal = el.getAttribute("data-gal"), k = parseInt(el.getAttribute("data-k"), 10);
-        openLB(gal === "fig" ? s.figures : s.images, k);
+        openLB(gal === "fig" ? s.figures : s.images, k, el);   // 關燈箱後焦點回到這張縮圖
       });
+      el.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } });
     });
     [].forEach.call(body.querySelectorAll(".pdfprev"), function (btn) {
       btn.addEventListener("click", function () {
@@ -609,19 +727,21 @@
       '<span class="org org-' + attr(p.origin || "自編") + '">' + esc(p.origin || "自編") + "</span>" +
       '<span class="prob-title"><span class="pid">' + esc(p.id) + "</span> " + esc(p.title || "") + "</span>" +
       (src ? '<span class="prob-src">' + esc(src) + "</span>" : "") +
-      '<label class="prob-got" title="勾起來 = 我已經會解這題"><input type="checkbox" data-got ' + (got ? "checked" : "") + "> 我會了</label></div>" +
+      '<label class="prob-got" title="勾起來 = 我已經會解這題"><input type="checkbox" data-got ' + (got ? "checked" : "") + '> <span class="got-t">' + ico("check") + "我會了</span></label></div>" +
       '<div class="prob-q markdown-body">' + md(p.q, true) + "</div>" +
       '<div class="prob-acts">' +
-      (p.plain ? '<button class="pbtn" data-act="plain">白話翻譯</button>' : "") +
+      (p.plain ? '<button class="pbtn" data-act="plain">白話<span class="bl">翻譯</span></button>' : "") +
       (hints.length ? '<button class="pbtn" data-act="hint">提示 <span class="hcnt">0/' + hints.length + "</span></button>" : "") +
-      '<button class="pbtn main" data-act="sol">專業詳解</button>' +
-      (p.img || p.pdf ? '<button class="pbtn" data-act="orig">看原題頁</button>' : "") +
-      '<span class="pai"><button class="pbtn ai" data-act="claude">問 Claude</button>' +
-      '<button class="pbtn ai" data-act="chatgpt">問 ChatGPT</button>' +
-      '<button class="pbtn ghost" data-act="copy" title="複製給 AI 的提示詞" aria-label="複製給 AI 的提示詞">' + ico("copy") + '</button></span></div>' +
+      '<button class="pbtn main" data-act="sol"><span class="bl">專業</span>詳解</button>' +
+      (p.img || p.pdf ? '<button class="pbtn" data-act="orig"><span class="bl">看</span>原題<span class="bl">頁</span></button>' : "") +
+      // AI 三顆收成「問 AI」選單,手機一列放得下
+      '<details class="pai"><summary class="pbtn pai-btn">' + ico("msg") + " 問 AI" + ico("chev-d") + "</summary>" +
+      '<div class="pai-menu"><button class="pbtn" data-act="claude">問 Claude</button><button class="pbtn" data-act="chatgpt">問 ChatGPT</button>' +
+      '<button class="pbtn" data-act="copy" title="複製給 AI 的提示詞">' + ico("copy") + " 複製提示詞</button>" +
+      (IS_LINE ? '<p class="pai-note">' + LINE_MSG + "</p>" : "") + "</div></details></div>" +
       (p.plain ? '<div class="prob-plain hidden"></div>' : "") +
       '<ol class="prob-hints"></ol>' +
-      '<div class="prob-orig hidden">' + (p.img ? '<img loading="lazy" src="' + attr(p.img) + '" alt="原題頁">' : "") +
+      '<div class="prob-orig hidden">' + (p.img ? '<img loading="lazy" src="' + attr(p.img) + '" alt="原題頁" tabindex="0" role="button" aria-label="放大原題頁">' : "") +
       (p.pdf ? '<a class="btn ghost" href="' + attr(p.pdf) + '" target="_blank">開啟原 PDF 該頁' + EXT + '</a>' : "") + "</div>" +
       '<div class="prob-sol hidden"></div></div>';
     return h;
@@ -629,7 +749,7 @@
   // 詳解內容(點「專業詳解」才產生,減少頁面元素)
   function probSolHtml(p) {
     var h = '<div class="markdown-body">' + md(p.solution, true) + "</div>";
-    if (p.answer) h += '<div class="prob-ans"><b>答案</b>　' + md(p.answer).replace(/^<p>|<\/p>\s*$/g, "") + "</div>";
+    if (p.answer) h += '<div class="prob-ans"><b>' + ico("check") + ' 答案</b>　' + md(p.answer).replace(/^<p>|<\/p>\s*$/g, "") + "</div>";
     if (p.pitfalls && p.pitfalls.length) h += '<div class="prob-pit"><b>' + ico("alert") + ' 常見錯誤</b><ul>' + p.pitfalls.map(function (x) { return "<li>" + md(x).replace(/^<p>|<\/p>\s*$/g, "") + "</li>"; }).join("") + "</ul></div>";
     if (p.notes && p.notes.length) h += '<div class="prob-notes"><b>術語註釋</b><dl>' + p.notes.map(function (n) {
       return "<dt>" + esc(n.term) + (n.url ? ' <a href="' + attr(n.url) + '" target="_blank" rel="noopener" aria-label="延伸閱讀">' + ico("ext") + '</a>' : "") + "</dt><dd>" + md(n.def).replace(/^<p>|<\/p>\s*$/g, "") + "</dd>";
@@ -647,9 +767,47 @@
       (p.answer ? "\n\n【參考答案（請幫我確認並解釋）】" + stripMd(p.answer) : "") + "\n\n【我卡住的地方】";
   }
   function copyText(t, btn) {
-    function ok() { if (btn) { var o = btn.innerHTML; btn.innerHTML = ico("check") + " 已複製"; setTimeout(function () { btn.innerHTML = o; }, 1400); } }
+    function ok() {   // 連點:原文只在第一次記,計時器重來,不會把「已複製」記成原文
+      if (!btn) return;
+      if (btn._cpT) clearTimeout(btn._cpT); else btn._cpO = btn.innerHTML;
+      btn.innerHTML = ico("check") + " 已複製";
+      btn._cpT = setTimeout(function () { btn.innerHTML = btn._cpO; btn._cpT = 0; }, 1400);
+    }
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, fallback); else fallback();
-    function fallback() { var ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch (e) {} document.body.removeChild(ta); }
+    // 備援:textarea 固定在畫面頂端、透明、唯讀(不跳頁、不叫出鍵盤;16px 免 iOS 放大),iOS 要 setSelectionRange 才選得到
+    function fallback() {
+      var ta = document.createElement("textarea"), back = document.activeElement, done = false;
+      ta.value = t; ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;opacity:0;font-size:16px";
+      document.body.appendChild(ta);
+      try { ta.focus({ preventScroll: true }); ta.select(); ta.setSelectionRange(0, t.length); done = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta);
+      if (back && back.focus) back.focus({ preventScroll: true });
+      if (done) ok(); else copyBox(t, btn);
+    }
+  }
+  function copyBox(t, from) {   // 自動複製失敗:底部卡片放唯讀文字,讓使用者長按複製
+    var b = document.getElementById("copybox");
+    if (!b) {
+      b = document.createElement("div"); b.id = "copybox"; b.setAttribute("role", "dialog"); b.setAttribute("aria-label", "手動複製");
+      b.innerHTML = '<div class="cb-h"><b>自動複製失敗，請長按複製</b><button class="cb-x" aria-label="關閉">' + ico("x") + "</button></div><textarea readonly></textarea>";
+      document.body.appendChild(b);
+      b.querySelector(".cb-x").addEventListener("click", copyBoxClose);
+    }
+    var ta = b.querySelector("textarea");
+    if (b.classList.contains("hidden") || !b._back) b._back = from || document.activeElement;   // Safari 點按鈕不會給焦點,所以直接傳按鈕
+    ta.value = t; b.classList.remove("hidden");
+    // 先全選(桌機直接 Ctrl+C);選取方向往回 = 游標在開頭,畫面停在第一行(下一格再拉回一次,Firefox 會捲到選取尾端)
+    ta.focus({ preventScroll: true }); ta.select(); ta.setSelectionRange(0, t.length, "backward"); ta.scrollTop = 0;
+    requestAnimationFrame(function () { ta.scrollTop = 0; });
+  }
+  function copyBoxClose() {   // ×、Esc、換頁都關;焦點還給原本的按鈕
+    var b = document.getElementById("copybox"); if (!b || b.classList.contains("hidden")) return;
+    b.classList.add("hidden");
+    var t = b._back, d = t && t.closest && t.closest("details:not([open])");   // 按鈕在收起的「問 AI」選單裡 → 改給選單按鈕
+    if (d) t = d.querySelector("summary");
+    if (t && t.focus && document.contains(t)) t.focus({ preventScroll: true });
+    b._back = null;
   }
   function askAI(which, c, p, si) {
     var t = aiPrompt(c, p, si), enc = encodeURIComponent(t);
@@ -665,14 +823,14 @@
       var sum = document.getElementById("probsum"); if (sum) sum.textContent = probSummary(c);
     });
     root.addEventListener("click", function (e) {
-      var b = e.target.closest(".pbtn"); if (!b) return;
+      var b = e.target.closest(".pbtn"); if (!b || b.tagName === "SUMMARY") return;
       var card = b.closest(".prob"), f = findProblem(c, card.dataset.pid); if (!f) return;
       var p = f.p, act = b.dataset.act;
       function tog(sel) { var el = card.querySelector(sel); if (!el) return null; el.classList.toggle("hidden"); b.classList.toggle("on", !el.classList.contains("hidden")); return el; }
-      if (act === "plain") { var pl = tog(".prob-plain"); if (pl && !pl.innerHTML) { pl.innerHTML = md(p.plain, true); typeset(pl); } }
+      if (act === "plain") { var pl = tog(".prob-plain"); if (pl && !pl.innerHTML) { pl.innerHTML = ico("book") + " " + md(p.plain, true); typeset(pl); } }
       else if (act === "hint") {
         var ol = card.querySelector(".prob-hints"), n = ol.children.length, hs = p.hints || [];
-        if (n < hs.length) { var li = document.createElement("li"); li.innerHTML = md(hs[n]).replace(/^<p>|<\/p>\s*$/g, ""); ol.appendChild(li); typeset(li); n++; }
+        if (n < hs.length) { var li = document.createElement("li"); li.innerHTML = ico("bulb") + " " + (/^[\s*_]*提示/.test(hs[n]) ? "" : '<b class="cl">提示 ' + (n + 1) + "</b> ") + md(hs[n]).replace(/^<p>|<\/p>\s*$/g, ""); ol.appendChild(li); typeset(li); n++; }
         b.querySelector(".hcnt").textContent = n + "/" + hs.length;
         if (n >= hs.length) b.classList.add("on");
       }
@@ -683,7 +841,11 @@
     });
     root.addEventListener("click", function (e) {
       var im = e.target.closest(".prob-orig img"); if (!im) return;
-      openLB([{ url: im.getAttribute("src"), caption: "原題頁", src: "", page: 0 }], 0);
+      openLB([{ url: im.getAttribute("src"), caption: "原題頁", src: "", page: 0 }], 0, im);   // 關燈箱後焦點回到這張圖
+    });
+    root.addEventListener("keydown", function (e) {
+      var im = e.target.closest && e.target.closest(".prob-orig img");
+      if (im && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); im.click(); }
     });
   }
   function probSummary(c) {
@@ -699,7 +861,7 @@
       }).join("") + "</select>" +
       '<select id="pf-lv"><option value="">全部難度</option><option>基礎</option><option>考試</option><option>進階</option></select>' +
       '<label class="pf-chk"><input type="checkbox" id="pf-todo"> 只看還不會的</label></div>';
-    if (c.glossary && c.glossary.length) h += '<details class="cheat gloss"><summary>全課術語註釋（' + c.glossary.length + ' 條）</summary><dl>' +
+    if (c.glossary && c.glossary.length) h += '<details class="cheat gloss"><summary>' + sumChev() + '全課術語註釋（' + c.glossary.length + ' 條）</summary><dl>' +
       c.glossary.map(function (g) {
         return "<dt>" + esc(g.term) + (g.alias && g.alias.length ? ' <span class="alias">' + esc(g.alias.join(" / ")) + "</span>" : "") +
           (g.url ? ' <a href="' + attr(g.url) + '" target="_blank" rel="noopener" aria-label="延伸閱讀">' + ico("ext") + '</a>' : "") + "</dt><dd>" + esc(g.def) + "</dd>";
@@ -712,7 +874,7 @@
     }).join("") + "</div>";
     return h;
   }
-  function bindProblemTab(c, si) {
+  function bindProblemTab(c, si, k, pid) {
     var list = document.getElementById("plist"); if (!list) return;
     bindProblems(list, c);
     function apply() {
@@ -728,9 +890,19 @@
         });
         g.style.display = any ? "" : "none";
       });
+      xsScan(list);   // 原本藏起來的題卡現在才量得到寬度
     }
     ["#pf-step", "#pf-lv", "#pf-todo"].forEach(function (s) { $(s).addEventListener("change", apply); });
+    var hit = pid ? findProblem(c, pid) : null;  // 搜尋結果 /probs/<題目 id>:篩到該章
+    if (hit) si = hit.si;
     if (si !== null && si !== undefined && c.steps[si] && c.steps[si].problems && c.steps[si].problems.length) { $("#pf-step").value = String(si); apply(); }
+    var card = hit ? [].find.call(list.querySelectorAll(".prob"), function (x) { return x.dataset.pid === pid; })
+      : k != null ? list.querySelectorAll('.pgroup[data-si="' + si + '"] .prob')[k] : null;  // 舊連結 /probs/<章>/<第幾題>:照位置找
+    if (card) {
+      var go = function () { card.scrollIntoView({ block: "start" }); };
+      setTimeout(function () { go(); card.classList.add("flash"); setTimeout(function () { card.classList.remove("flash"); }, 1600); }, 0);  // 等 renderCourse 的 scrollTo(0,0)
+      setTimeout(go, 900);  // 上方題卡公式排版完高度會變,再對一次
+    }
     typesetLazy(list, ".prob", function (card) { annotateTerms(card.querySelector(".prob-q"), c); });
   }
 
@@ -748,7 +920,7 @@
     if (!keys.length) return;
     keys.sort(function (a, b) { return b.length - a.length; });
     var re = new RegExp(keys.map(reEsc).join("|"), "gi"), used = {};
-    var SKIP = /^(PRE|CODE|A|SCRIPT|STYLE|MJX-CONTAINER|H1|BUTTON|TEXTAREA|SELECT|DT|SUMMARY)$/;
+    var SKIP = /^(PRE|CODE|A|SCRIPT|STYLE|MJX-CONTAINER|H[1-6]|BUTTON|TEXTAREA|SELECT|DT|SUMMARY)$/;
     var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
       acceptNode: function (n) {
         for (var p = n.parentNode; p && p !== el; p = p.parentNode) {
@@ -784,18 +956,52 @@
       return '<button class="noteitem ' + (i === idx ? "active" : "") + '" data-i="' + i + '">' + esc(n.title) + (n.primary ? ' <span class="pill">主要</span>' : "") + "</button>";
     }).join("") + '</div><article class="markdown-body" id="notebody">' + md(c.notes[idx].content) + "</article></div>";
   }
+  // 手機的筆記清單是橫捲:選中項在畫面外就只橫向捲過去(不動整頁)
+  function noteItemShow(list, b) {
+    if (!b || list.scrollWidth <= list.clientWidth) return;
+    var d = b.getBoundingClientRect().left - list.getBoundingClientRect().left;
+    if (d < 0 || d + b.offsetWidth > list.clientWidth) list.scrollLeft += d - 16;
+  }
   function bindNotes(c) {
     var list = main.querySelector(".notelist"); if (!list) return;
+    noteItemShow(list, list.querySelector(".noteitem.active"));   // #/c/<課>/notes/<i> 深連結
     list.addEventListener("click", function (e) {
       var b = e.target.closest(".noteitem"); if (!b) return;
       [].forEach.call(list.querySelectorAll(".noteitem"), function (x) { x.classList.remove("active"); });
-      b.classList.add("active");
+      b.classList.add("active"); noteItemShow(list, b);
+      history.replaceState(null, "", "#/c/" + encodeURIComponent(c.id) + "/notes/" + b.dataset.i);   // 重新整理、分享都停在這篇;replaceState 不觸發 hashchange
       var nb = document.getElementById("notebody");
       nb.innerHTML = md(c.notes[parseInt(b.dataset.i, 10)].content);
       typeset(nb).then(function () { annotateTerms(nb, c); });
       window.scrollTo(0, 0);
     });
   }
+  // 筆記目錄的 #錨點:不交給 hashchange(會被當成路由畫回首頁),直接捲到標題
+  // 比對用:只留字母與數字(錨點產生器對 emoji、標點、空白的處理不一致,兩邊都去掉才對得上)
+  function anchorKey(t) { return String(t).toLowerCase().replace(/[^\p{L}\p{N}]/gu, ""); }
+  main.addEventListener("click", function (e) {
+    var a = e.target.closest('#notebody a[href^="#"]:not([href^="#/"])'); if (!a) return;
+    e.preventDefault();
+    var id = a.getAttribute("href").slice(1); try { id = decodeURIComponent(id); } catch (x) {}
+    var nb = document.getElementById("notebody"), t = null;
+    [].some.call(nb.querySelectorAll("[id]"), function (x) { if (x.id === id) { t = x; return true; } });
+    if (t && !t.textContent.trim()) {   // <a id="1"></a> 這種空錨點:跳到後面的標題
+      var n = t.closest("p") || t; while (n && n !== nb && !/^H[1-6]$/.test(n.tagName)) n = n.nextElementSibling;
+      if (n && n !== nb) t = n;
+    }
+    if (!t) {
+      var k = anchorKey(id), hs = [].slice.call(nb.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+      t = hs.filter(function (h) { return anchorKey(h.textContent) === k; })[0];
+      if (!t && k.length >= 4) {   // 標題後來補了字(「13. 紅綠燈實例 ⭐(期中/練習核心)」):只有一個標題以錨點開頭才跳
+        var pre = hs.filter(function (h) { return anchorKey(h.textContent).indexOf(k) === 0; });
+        if (pre.length === 1) t = pre[0];
+      }
+    }
+    if (!t) return;
+    t.scrollIntoView({ block: "start" });
+    if (!t.hasAttribute("tabindex")) t.setAttribute("tabindex", "-1");   // 焦點跟著到標題,不留在目錄
+    t.focus({ preventScroll: true });
+  });
 
   /* ---- quiz ---- */
   // 選項每次隨機排列(題庫正解常集中在 A);data-k 保留原始索引供判分
@@ -881,8 +1087,8 @@
   }
   function tabLib(c) {
     var L = libFor(c), kinds = Object.keys(LIBK).filter(function (k) { return L.some(function (x) { return x.kind === k; }); });
-    return '<p class="note">從 PI（Physik Instrumente）官網整理的技術文件，連結直接開官網原檔。也可以問右下角的 AI 助教「這章有什麼資料可以看」。</p>' +
-      '<div class="lib-bar"><input class="lib-q" type="search" placeholder="搜尋：中文、日文、英文或型號，例如 遲滯、ヒステリシス、hexapod、E-505">' +
+    return '<p class="note">' + ico("info") + ' 從 PI（Physik Instrumente）官網整理的技術文件，連結直接開官網原檔。也可以問右下角的 AI 助教「這章有什麼資料可以看」。</p>' +
+      '<div class="lib-bar"><input class="lib-q" type="search" aria-label="搜尋 PI 資料庫(中文、日文、英文或型號)" placeholder="' + (matchMedia("(max-width:820px)").matches ? "中日英或型號" : "搜尋：中文、日文、英文或型號，例如 遲滯、ヒステリシス、hexapod、E-505") + '">' +
       '<div class="chips"><button class="chip link lib-f active" data-k="">全部</button>' +
       kinds.map(function (k) { return '<button class="chip link lib-f" data-k="' + k + '">' + LIBK[k] + "</button>"; }).join("") +
       '</div></div><p class="lib-n"></p><ul class="matlist lib-list">' + L.map(libItem).join("") + "</ul>";
@@ -962,26 +1168,181 @@
   }
 
   /* ---------- search ---------- */
-  var sidx = null;
+  var sidx = null, inSearch = false;
+  // 摘要用純文字:去掉 markdown 連結/表格與 $;常見 LaTeX 指令換成 Unicode,不認得的整個刪掉(不留指令名),保留原文大小寫
+  var TEX_U = {
+    alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", varepsilon: "ε", zeta: "ζ", eta: "η", theta: "θ", vartheta: "θ", iota: "ι", kappa: "κ",
+    lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π", rho: "ρ", sigma: "σ", tau: "τ", upsilon: "υ", phi: "φ", varphi: "φ", chi: "χ", psi: "ψ", omega: "ω",
+    Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ", Pi: "Π", Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
+    cong: "≅", approx: "≈", simeq: "≃", sim: "~", equiv: "≡", neq: "≠", ne: "≠", leq: "≤", le: "≤", geq: "≥", ge: "≥", ll: "≪", gg: "≫", propto: "∝",
+    times: "×", cdot: "·", pm: "±", mp: "∓", div: "÷", infty: "∞", partial: "∂", nabla: "∇", sum: "Σ", prod: "Π", int: "∫", oint: "∮", sqrt: "√",
+    to: "→", rightarrow: "→", longrightarrow: "→", xrightarrow: "→", leftarrow: "←", gets: "←", Rightarrow: "⇒", implies: "⇒", Longrightarrow: "⇒",
+    Leftarrow: "⇐", Leftrightarrow: "⇔", iff: "⇔", leftrightarrow: "↔", mapsto: "↦",
+    lvert: "|", rvert: "|", vert: "|", mid: "|", lVert: "‖", rVert: "‖", Vert: "‖", langle: "⟨", rangle: "⟩",
+    in: "∈", notin: "∉", subset: "⊂", cup: "∪", cap: "∩", forall: "∀", exists: "∃", angle: "∠", perp: "⊥", parallel: "∥", circ: "∘", degree: "°",
+    prime: "′", ldots: "…", cdots: "⋯", dots: "…", vdots: "⋮", hbar: "ℏ", ell: "ℓ", quad: " ", qquad: " ",
+    dot: "\u0307", ddot: "\u0308"   // 組合字元;snipText 會把它移到字母後面(ẋ ẍ)
+  };
+  var TEX_FN = /^(?:sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|log|ln|lg|exp|max|min|sup|inf|lim|det|arg|deg|dim|ker|gcd|Re|Im|mod|bmod)$/;
+  var SUPC = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", "−": "⁻", "(": "⁽", ")": "⁾", T: "ᵀ", "∘": "°", "′": "′", "*": "∗" };   // * 用 ∗(stripMd 會刪 *)
+  var SUBC = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋", "−": "₋", "=": "₌", "(": "₍", ")": "₎",
+    a: "ₐ", e: "ₑ", h: "ₕ", i: "ᵢ", j: "ⱼ", k: "ₖ", l: "ₗ", m: "ₘ", n: "ₙ", o: "ₒ", p: "ₚ", r: "ᵣ", s: "ₛ", t: "ₜ", u: "ᵤ", v: "ᵥ", x: "ₓ", β: "ᵦ", γ: "ᵧ", ρ: "ᵨ", φ: "ᵩ", χ: "ᵪ" };
+  var SUBK = {}; Object.keys(SUBC).forEach(function (k) { if (k !== "−") SUBK[SUBC[k]] = k; });   // 下標字 → 原字(搜尋用)
+  function texName(n) { return TEX_U.hasOwnProperty(n) ? TEX_U[n] : TEX_FN.test(n) ? " " + n + " " : ""; }
+  // \uE004 = 隔開用的佔位字:\frac{…}、\text{…} 拆完的結果不會黏到前面的指令(\approx\frac{f}{i} 不會變成不認得的 \approxf)
+  function texCmds(s) { return s.replace(/\\([a-zA-Z]+)/g, function (m, n) { return texName(n); }).replace(/\uE004/g, ""); }
+  // 整串能變上標字就變;不能的保留 ^ 與括號(e^{-ζωt} → e^(-ζωt)),不然會讀成相減;本來就有括號的不再加一層。\uE002 = ^,最後才換回
+  function texSup(s) { s = texCmds(s).trim(); return !s ? "" : /^[0-9+\-−()]+$|^[T∘′*]$/.test(s) ? s.replace(/./g, function (ch) { return SUPC[ch]; }) : s.length === 1 || /^\([^()]*\)$/.test(s) ? "\uE002" + s : "\uE002(" + s + ")"; }
+  // 下標同上:ωₙ、xₙ₊₁;不能的 σ_y、T_(1/2)。\uE003 = _(stripMd 會刪 _),最後才換回
+  function texSub(s) {
+    s = texCmds(s).trim(); if (!s) return "";
+    return /^[^\s]+$/.test(s) && s.split("").every(function (ch) { return SUBC.hasOwnProperty(ch); }) ? s.replace(/./g, function (ch) { return SUBC[ch]; }) : s.length === 1 || /^\([^()]*\)$/.test(s) ? "\uE003" + s : "\uE003(" + s + ")";
+  }
+  var SUBS = "₀-₉₊₋₌₍₎ₐₑₒₓₕ-ₜᵢ-ᵪⱼ";
+  // 分子分母:單一符號(可帶上下標)、純數字、本來就有括號或 |…| 才不加括號
+  var PAR_RE = new RegExp("^(?:[0-9]+(?:\\.[0-9]+)?|[A-Za-z\\u0370-\\u03ff∞∂∇ℏℓ](?:[_\\uE003](?:[0-9A-Za-z\\u0370-\\u03ff]+|\\([^()]*\\))|[" + SUBS + "]|[\\^\\uE002]?[0-9T*¹²³⁰-⁹⁽⁾′∗ᵀ])*|√?\\([^()]*\\)(?:[\\^\\uE002]?[0-9T*¹²³⁰-⁹⁽⁾′∗ᵀ])*|\\|[^|]*\\|)$");
+  function texPar(s) { s = texCmds(s).trim(); return PAR_RE.test(s) ? s : "(" + s + ")"; }
+  // 筆記裡的 emoji(🔗 ⭐ ⚠️)不進摘要;↔ 這類箭頭與 © ® ™ 保留
+  var EMOJI_RE; try { EMOJI_RE = new RegExp("(?![\\u00a9\\u00ae\\u2122\\u2194-\\u2199])\\p{Extended_Pictographic}|[\\ufe0f\\u200d]", "gu"); } catch (e) { EMOJI_RE = /[\ud83c-\ud83e][\udc00-\udfff]|[\u2600-\u27bf\u2b50\u2b55]|[\ufe0f\u200d]/g; }
+  function snipText(t) {
+    var s = String(t || "").replace(/(^|[^!])\[([^\]]*)\]\([^)]*\)/g, "$1$2").replace(/```[\w-]*/g, " ")   // 程式碼框的語言名(```text)
+      .replace(/^\s*\|?[\s|:-]*-[\s|:-]*$/gm, " ")                                   // 表格分隔列 |---|---|
+      .replace(/^\s*\|.*$/gm, function (l) { return l.replace(/\|/g, " "); })        // 表格列的 |(數學的 |x| 不動)
+      .replace(/\\begin\s*\{([bpvBV]?matrix)\}([\s\S]*?)\\end\s*\{\1\}/g, function (m, k, b) {   // 矩陣寫成 [5 0; 0 10]
+        var o = { p: "()", v: "||", B: "\uE000\uE001", V: "‖‖" }[k[0]] || "[]";   // \uE000 \uE001 = { }(最後才換回,不會被當 TeX 大括號刪掉)
+        return " " + o[0] + b.split(/\\\\/).map(function (r) { return r.replace(/&/g, " ").trim(); }).filter(Boolean).join("; ") + o[1] + " ";
+      })
+      .replace(/\\(d?dot)(?![a-zA-Z])\s*\{\s*\\\{\s*([^{}\s\\])\s*\\\}\s*\}/g, function (m, n, a) { return "\uE000" + a + TEX_U[n] + "\uE001"; })   // \ddot{\{x\}} → {ẍ}
+      .replace(/\\(d?dot)(?![a-zA-Z])\s*(?:\{\s*([^{}\s])\s*\}|([A-Za-z\u0370-\u03ff]))/g, function (m, n, a, b) { return (a || b) + TEX_U[n]; })   // 點放在字母後面
+      .replace(/\\d?dot(?![a-zA-Z])/g, "")                                                // 剩下沒有對象的點:刪掉,不留孤立的點
+      .replace(/\\(?:begin|end)\s*\{[^}]*\}/g, " ").replace(/\\\\/g, " ").replace(/[$&]/g, " ")
+      .replace(/\\\|/g, "‖").replace(/\\\{/g, "\uE000").replace(/\\\}/g, "\uE001").replace(/\\([%#_])/g, "$1").replace(/\\[,;:! ]/g, " ")   // \{ \} 先換佔位字,TeX 大括號刪完再換回
+      .replace(/\\(?:color|textcolor|label|tag|hspace|vspace|phantom)\s*\{[^{}]*\}/g, "");   // 參數不是內容的指令:連參數一起刪
+    s = s.replace(/\\[dt]?frac\s*([0-9A-Za-z])\s*([0-9A-Za-z])/g, "$1/$2");   // \tfrac12 這種不加大括號的寫法
+    for (var k = 0, prev = ""; k < 6 && s !== prev; k++) {   // 由內往外拆大括號:上下標、分數、根號、帶參數的指令
+      prev = s;
+      s = s.replace(/\^\s*\{([^{}]*)\}/g, function (m, a) { return texSup(a); }).replace(/_\s*\{([^{}]*)\}/g, function (m, a) { return texSub(a); })
+        .replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, function (m, a, b) { return "\uE004" + texPar(a) + "/" + texPar(b); })
+        .replace(/\\sqrt\s*\{([^{}]*)\}/g, function (m, a) { return "√" + texPar(a); })
+        .replace(/\\(?!(?:[dt]?frac|sqrt)(?![a-zA-Z]))([a-zA-Z]+)\s*\{([^{}]*)\}/g, function (m, n, a) { return "\uE004" + texName(n) + a; });
+    }
+    s = texCmds(s).replace(/\^\s*([0-9T∘′*])/g, function (m, a) { return SUPC[a]; }).replace(/\^\s*([A-Za-z\u0370-\u03ff])/g, "\uE002$1")
+      // 沒大括號的下標(ω_t、x_1);前面要接著字,一般文字的 file_size 不動
+      .replace(/([^\s_])_([0-9]|[A-Za-z\u0370-\u03ff](?![A-Za-z]))/g, function (m, p, a) { return p + texSub(a); });
+    return stripMd(s).replace(/[{}^\\]/g, "").replace(EMOJI_RE, "").replace(/\uE000/g, "{").replace(/\uE001/g, "}").replace(/\uE002/g, "^").replace(/\uE003/g, "_").replace(/\s+/g, " ").trim();
+  }
+  // 搜 zeta / cong 這類指令名時也找換好的符號(只收 3 字以上、非 ASCII 的)
+  var TEX_ALIAS = {};
+  Object.keys(TEX_U).forEach(function (k) { var v = TEX_U[k], lk = k.toLowerCase(); if (k.length >= 3 && /[^\x00-\x7f]/.test(v) && (!TEX_ALIAS[lk] || k === lk)) TEX_ALIAS[lk] = v; });
+  // 比對用的字串:轉小寫、去掉 _ 與 _( ) 的括號、下標字換回原字、∗ → *(打 σy 找得到 σ_y,ωn 找得到 ωₙ,Hpq 找得到 H_(pq),A1* 找得到 A1∗)
+  function keyCh(ch) { return ch === "_" ? "" : ch === "∗" ? "*" : SUBK[ch] || ch.toLowerCase().replace(/ς/g, "σ"); }
+  // m:每個 key 字元在原字串的位置(標 mark 用);noMap 時不記(建索引用)
+  function keyMap(s, noMap) {
+    var k = "", m = noMap ? null : [], close = -1;
+    for (var i = 0; i < s.length; i++) {
+      if (s[i] === "_" && s[i + 1] === "(") { var j = s.indexOf(")", i + 2), o = s.indexOf("(", i + 2); if (j > 0 && (o < 0 || o > j)) { close = j; i++; continue; } }
+      if (i === close) continue;
+      var t = keyCh(s[i]); k += t;
+      if (m) for (var n = 0; n < t.length; n++) m.push(i);
+    }
+    return { k: k, m: m };
+  }
+  function skey(s) { return keyMap(String(s), true).k; }
   function buildIndex() {
     sidx = [];
+    // 標題與內文分開存:標題命中時摘要從內文開頭取,不再重複一次標題
+    function add(c, href, title, body, prob) { var ts = snipText(title), raw = snipText(body); sidx.push({ ctitle: c.title, href: href, ts: ts, tl: skey(ts), prob: prob, raw: raw, text: skey(raw) }); }
     D.courses.forEach(function (c) {
-      c.notes.forEach(function (n, i) { sidx.push({ cid: c.id, ctitle: c.title, href: "#/c/" + c.id + "/notes/" + i, title: n.title, text: (n.title + "\n" + n.content).toLowerCase() }); });
-      allProblems(c).forEach(function (x) { var p = x.p; sidx.push({ cid: c.id, ctitle: c.title, href: "#/c/" + c.id + "/probs", title: "例題 " + p.id + " " + (p.title || ""), text: [p.title, p.q, p.plain, p.solution].join("\n").toLowerCase() }); });
+      c.notes.forEach(function (n, i) { add(c, "#/c/" + c.id + "/notes/" + i, n.title, n.content, false); });
+      c.steps.forEach(function (s, si) {
+        (s.problems || []).forEach(function (p) { add(c, "#/c/" + c.id + "/probs/" + encodeURIComponent(p.id), "例題 " + p.id + " " + (p.title || ""), [p.q, p.plain, p.solution].join("\n"), true); });
+      });
     });
   }
-  search.addEventListener("input", function () {
-    var q = search.value.trim().toLowerCase();
-    if (q.length < 2) { route(); return; }
+  // 注音選字中(isComposing)不搜;選完字 compositionend 立刻搜,一般輸入等 150ms 停手再搜
+  var searchT = 0;
+  search.addEventListener("input", function (e) { clearTimeout(searchT); if (e.isComposing) return; searchT = setTimeout(doSearch, 150); });
+  search.addEventListener("compositionend", function () { clearTimeout(searchT); doSearch(); });
+  function doSearch() {
+    var raw = search.value.trim(), q = skey(raw);   // 比對用的 key(見 keyCh)
+    if (raw && sidebar.classList.contains("open")) setMenu(true, true);  // 手機:抽屜只留搜尋框;字刪光也維持,直到關閉
+    if (q.length < 2) { if (inSearch) render(); return; }    // 字數不足:只還原頁面,不關抽屜
     if (!sidx) buildIndex();
-    var hits = sidx.filter(function (x) { return x.text.indexOf(q) >= 0; }).slice(0, 40);
-    main.innerHTML = '<header class="chead"><h1>搜尋:「' + esc(search.value.trim()) + '」</h1><p class="sub">' + hits.length + " 筆結果</p></header>" +
-      (hits.length ? '<div class="results">' + hits.map(function (x) {
-        var pos = x.text.indexOf(q), snip = x.text.slice(Math.max(0, pos - 40), pos + 60);
-        return '<a class="result" href="' + x.href + '"><b>' + x.ctitle + "</b> › " + esc(x.title) + '<span class="snip">…' + esc(snip) + "…</span></a>";
-      }).join("") + "</div>" : '<p class="empty">查無結果。</p>');
+    if (!inSearch) window.scrollTo(0, 0);  // 從頁面中段開始打字:捲回頂端看得到「搜尋:」標題
+    inSearch = true;
+    var alt = TEX_ALIAS[q] || "";
+    function has(s) { return s.indexOf(q) >= 0 || (alt && s.indexOf(alt) >= 0); }
+    var all = sidx.filter(function (x) { return has(x.tl) || has(x.text); });
+    // 排名:標題命中 +2、例題 +1;同分維持原順序(sort 是穩定的)
+    all = all.map(function (x) { return { x: x, s: (has(x.tl) ? 2 : 0) + (x.prob ? 1 : 0) }; }).sort(function (a, b) { return b.s - a.s; }).map(function (o) { return o.x; });
+    var hits = all.slice(0, 40);
+    // 依課程分組(各組照第一筆出現的順序),每筆不再重複課名
+    var groups = [], gi = {};
+    hits.forEach(function (x) { if (!gi.hasOwnProperty(x.ctitle)) { gi[x.ctitle] = groups.length; groups.push([]); } groups[gi[x.ctitle]].push(x); });
+    // 找 s 裡 [from, to) 範圍內第一個命中,回傳原字串的 [起, 迄) 位置
+    function hitIn(s, from, to) {
+      var km = keyMap(s), i, n;
+      [q, alt].some(function (w) { if (!w) return false; i = km.k.indexOf(w); n = w.length; return i >= 0; });
+      if (!(i >= 0)) return null;
+      var a = km.m[i], b = km.m[i + n - 1] + 1;
+      return a >= from && b <= to ? [a, b] : null;
+    }
+    function marked(s, from, to) {
+      var h = hitIn(s, from, to);
+      return h ? esc(s.slice(from, h[0])) + "<mark>" + esc(s.slice(h[0], h[1])) + "</mark>" + esc(s.slice(h[1], to)) : esc(s.slice(from, to));
+    }
+    function card(x) {
+      var a = 0, b = Math.min(x.raw.length, 100), th = has(x.tl), h = th ? null : hitIn(x.raw, 0, x.raw.length);
+      if (h) { a = Math.max(0, h[0] - 40); b = Math.min(x.raw.length, h[1] + 60); }   // 命中在內文:取命中處前後
+      var snip = x.raw ? '<span class="snip">' + (a ? "…" : "") + marked(x.raw, a, b) + (b < x.raw.length ? "…" : "") + "</span>" : "";
+      return '<a class="result" href="' + x.href + '"><b>' + (th ? marked(x.ts, 0, x.ts.length) : esc(x.ts)) + "</b>" + snip + "</a>";
+    }
+    var head = '<h1>搜尋:「' + esc(raw) + '」</h1>', cnt = all.length > hits.length ? "共 " + all.length + " 筆，顯示前 " + hits.length + " 筆" : all.length + " 筆結果";
+    var body = hits.length ? groups.map(function (g) { return '<h2 class="res-g">' + esc(g[0].ctitle) + '<span class="res-gn">' + g.length + " 筆</span></h2>" + '<div class="results">' + g.map(card).join("") + "</div>"; }).join("") : '<p class="empty">查無結果。</p>';
+    // 搜尋中只換內容、不重建結果數那一行:aria-live 區塊要一直在,螢幕閱讀器才會念出新的筆數
+    var live = document.getElementById("srch-n"), sh = document.getElementById("srch-h"), sb = document.getElementById("srch-b");
+    if (!live || !sh || !sb) {
+      main.innerHTML = '<header class="chead"><div id="srch-h"></div><p class="sub" id="srch-n" aria-live="polite"></p></header><div id="srch-b"></div>';
+      live = document.getElementById("srch-n"); sh = document.getElementById("srch-h"); sb = document.getElementById("srch-b");
+      setTimeout(function () { if (live.isConnected) live.textContent = live.dataset.n; }, 50);   // 剛插入的 live 區塊要等一下再填字才會被念
+    } else live.textContent = cnt;
+    live.dataset.n = cnt;
+    sh.innerHTML = head; sb.innerHTML = body;
+  }
+  search.addEventListener("keydown", function (e) {  // 手機按 Enter:收起抽屜,結果從頂端完整顯示
+    if (e.isComposing || e.keyCode === 229) return;  // 注音 / Android 選字中的 Enter
+    if (e.key !== "Enter" || !matchMedia("(max-width:820px)").matches) return;
+    e.preventDefault(); search.blur(); setMenu(false); window.scrollTo(0, 0);
   });
   main.addEventListener("click", function (e) { var r = e.target.closest(".result"); if (r && r.getAttribute("href") === location.hash) { search.value = ""; route(); } });  // 同頁結果不會觸發 hashchange
+
+  // 題卡「問 AI」選單:點外面、選了 Claude / ChatGPT、或按 Esc 就收起
+  document.addEventListener("click", function (e) {
+    [].forEach.call(document.querySelectorAll("details.pai[open]"), function (d) {
+      if (!d.contains(e.target) || e.target.closest('[data-act="claude"], [data-act="chatgpt"]')) d.open = false;
+    });
+  });
+  // 「問 AI」選單:底部會被 AI 助教圓鈕蓋住或超出畫面時,上方放得下就往上開,否則把頁面往上捲
+  function paiPlace(d) {
+    var m = d.querySelector(".pai-menu"); if (!m) return;
+    m.classList.remove("up");
+    var tb = document.getElementById("tutor-btn"), t = tb && tb.getClientRects().length ? tb.getBoundingClientRect() : null, lim = innerHeight - 8;
+    if (t) lim = Math.min(lim, t.top - 8);
+    var s = d.querySelector("summary").getBoundingClientRect(), sl = t && s.right > t.left && s.left < t.right ? lim : innerHeight - 8;
+    if (s.bottom > sl) window.scrollBy(0, s.bottom - sl);   // 按鈕本身被圓鈕蓋住或在畫面外:先捲上來
+    var r = m.getBoundingClientRect();
+    if (r.bottom <= lim) return;
+    var bar = matchMedia("(max-width:820px)").matches ? document.getElementById("sidebar").getBoundingClientRect().bottom : 0;
+    if (d.getBoundingClientRect().top - 4 - r.height >= bar + 8) m.classList.add("up");
+    else window.scrollBy(0, r.bottom - lim);
+  }
+  document.addEventListener("toggle", function (e) { if (e.target.matches && e.target.matches("details.pai") && e.target.open) paiPlace(e.target); }, true);
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    var cb = document.getElementById("copybox");
+    if (cb && !cb.classList.contains("hidden")) { copyBoxClose(); e.stopImmediatePropagation(); return; }   // 一次只關最上層
+    [].forEach.call(document.querySelectorAll("details.pai[open]"), function (d) { d.open = false; });
+  });
 
   /* ---------- 字體大小(記在瀏覽器) ---------- */
   var ZKEY = "stust_zoom";
@@ -1039,16 +1400,18 @@
   function tutorEl(sel) { return tutorBox.querySelector(sel); }
 
   function tutorSync() {   // route() 每次換頁呼叫:跟著目前的課程/章節走,換章就清空對話
-    var m = location.hash.match(/^#\/c\/([^/]+)(?:\/(\w+))?(?:\/(\d+))?/), c = m && byId(decodeURIComponent(m[1]));
+    var m = location.hash.match(/^#\/c\/([^/]+)(?:\/(\w+))?(?:\/([^/]+))?/), c = m && byId(decodeURIComponent(m[1]));
     tutorBtn.classList.toggle("hidden", !c);
     if (!c) { tutorShow(false); return; }
-    var si = (m[2] === "steps" || m[2] === "probs") && m[3] ? Math.min(+m[3], c.steps.length - 1) : (T.c === c ? T.si : 0);
+    var a3 = m[3] ? decodeURIComponent(m[3]) : "", num = /^\d+$/.test(a3);
+    var hit = m[2] === "probs" && a3 && !num ? findProblem(c, a3) : null;  // 題目 id 深連結:用該題的章
+    var si = hit ? hit.si : (m[2] === "steps" || m[2] === "probs") && num ? Math.min(+a3, c.steps.length - 1) : (T.c === c ? T.si : 0);
     var own = tutorOwner();   // 登入/登出作者模式也要換面板
     if (T.c !== c || T.si !== si || T.owner !== own) { T.c = c; T.si = si; T.owner = own; T.msgs = []; if (T.open) tutorRender(); }
   }
   function tutorShow(open) {
-    T.open = open; tutorBox.classList.toggle("hidden", !open); tutorBtn.classList.toggle("on", open);
-    if (open) { tutorRender(); tutorEl(".tt-in").focus(); }
+    T.open = open; tutorBox.classList.toggle("hidden", !open); tutorBtn.classList.toggle("on", open); if (open) tutorBtn.classList.remove("away");
+    if (open) { tutorRender(); if (!matchMedia("(pointer:coarse)").matches) tutorEl(".tt-in").focus(); }  // 觸控裝置不自動叫出鍵盤蓋住面板
   }
 
   function tutorRules(c) {
@@ -1083,7 +1446,7 @@
       (f ? "\n【本章公式】" + f.slice(0, 600) : "") + "\n(如果需要本章完整筆記請跟我說,我會貼給你)\n\n【我的問題】\n" + q;
     copyText(tutorRules(c) + "\n\n" + tutorContext(c, T.si) + "\n\n【我的問題】\n" + q);
     window.open((which === "claude" ? "https://claude.ai/new?q=" : "https://chatgpt.com/?q=") + encodeURIComponent(short), "_blank", "noopener");
-    tutorNote("已開新分頁。本章完整教材已複製,對方需要時在對話框貼上(Ctrl+V)即可。");
+    tutorNote("已開新分頁。本章完整教材已複製,對方需要時在對話框貼上" + (matchMedia("(pointer:coarse)").matches ? "" : "(Ctrl+V)") + "即可。");
   }
 
   // C 自備金鑰:Opus/Sonnet 加伺服器端 fallback(被安全機制拒答時自動換模型);Haiku 沒有
@@ -1163,10 +1526,10 @@
       '<textarea class="tt-in" rows="3" placeholder="問這一章的任何問題…' + (matchMedia("(max-width:820px), (pointer:coarse)").matches ? "" : "(Ctrl+Enter 送出)") + '"></textarea>' +
       (key  // 沒金鑰時免費轉交當主按鈕
         ? '<div class="tt-acts"><button class="btn tt-send">送出</button><button class="pbtn tt-ho" data-w="claude">用 Claude 開啟</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button></div>'
-        : '<div class="tt-acts"><button class="btn tt-ho" data-w="claude">用 Claude 開啟(免費)</button><button class="pbtn tt-ho" data-w="chatgpt">用 ChatGPT 開啟</button><button class="pbtn tt-send">用自己的金鑰送出</button></div>') +
+        : '<div class="tt-acts"><button class="btn tt-ho" data-w="claude">Claude 開啟(免費)</button><button class="pbtn tt-ho" data-w="chatgpt">ChatGPT 開啟</button><button class="pbtn tt-send">自備金鑰送出</button></div>') +
       (tutorOwner()
         ? '<div class="tt-owner"><div><b>作者模式</b>:使用你自己的 Claude(金鑰只在本機 private.js,不會顯示也不會發布)。</div>' + modelSel + "</div>"
-        : '<details class="tt-set"><summary>設定:自備 Anthropic API 金鑰 ' + (key ? "(已設定 …" + esc(key.slice(-4)) + ")" : "(未設定)") + "</summary>" +
+        : '<details class="tt-set"><summary>' + sumChev() + '設定:自備 Anthropic API 金鑰 ' + (key ? "(已設定 …" + esc(key.slice(-4)) + ")" : "(未設定)") + "</summary>" +
           '<input type="password" class="tt-key" placeholder="貼上 sk-ant-… 金鑰" autocomplete="off">' +
           '<label class="tt-rm"><input type="checkbox"' + (lsGet(TK) ? " checked" : "") + '> 記住在這台電腦(公用電腦請不要勾)</label>' + modelSel +
           '<div class="tt-acts"><button class="pbtn tt-save">儲存金鑰</button>' + (key ? '<button class="pbtn tt-clear">清除金鑰</button>' : "") +
@@ -1177,6 +1540,16 @@
   }
 
   tutorBtn.addEventListener("click", function () { tutorShow(!T.open); });
+  (function tutorAvoid() {
+    var lastY = scrollY, mq = matchMedia("(max-width:820px)");
+    addEventListener("scroll", function () {
+      var y = scrollY, dy = y - lastY, end = y + innerHeight >= document.documentElement.scrollHeight - 4;
+      if (Math.abs(dy) < 6 && !end) return;
+      lastY = y;
+      // 一次跳超過約一個畫面(深層連結、回到頂端)是程式捲動,不是手指往下滑:不收
+      tutorBtn.classList.toggle("away", mq.matches && !T.open && dy > 0 && dy < innerHeight * .9 && y > 80 && !end);
+    }, { passive: true });
+  })();
   tutorBox.addEventListener("click", function (e) {
     var b = e.target.closest("button"); if (!b) return;
     if (b.classList.contains("tt-x")) tutorShow(false);
@@ -1199,7 +1572,7 @@
   // 手機分頁列右邊還有分頁時,顯示漸層＋›
   function tabMore() { var b = main.querySelector(".tabbar"); if (b) b.parentNode.classList.toggle("more", b.scrollLeft + b.clientWidth < b.scrollWidth - 4); }
   window.addEventListener("resize", tabMore);
-  window.addEventListener("hashchange", function () { search.value = ""; route(); });  // 換頁就離開搜尋結果
+  window.addEventListener("hashchange", function () { search.value = ""; copyBoxClose(); route(); });  // 換頁就離開搜尋結果、關手動複製卡
   renderNav();
   route();
 })();
