@@ -210,10 +210,11 @@
 
   /* ---------- lightbox ---------- */
   var LB = { list: [], idx: 0 };
-  var lb = document.getElementById("lightbox"), lbImg = document.getElementById("lb-img"), lbCap = document.getElementById("lb-cap");
-  function lbShow() { var it = LB.list[LB.idx]; if (!it) return; lbImg.src = it.url; lbCap.textContent = (it.caption ? it.caption + " — " : "") + (it.src || "") + (it.page ? " p." + it.page : "") + "  (" + (LB.idx + 1) + "/" + LB.list.length + ")"; }
+  var lb = document.getElementById("lightbox"), lbImg = document.createElement("img"), lbCap = document.getElementById("lb-cap");
+  lbImg.id = "lb-img"; lbImg.alt = ""; lb.insertBefore(lbImg, document.getElementById("lb-next"));  // 開燈箱才設 src(HTML 裡不放沒有 src 的 <img>)
+  function lbShow() { var it = LB.list[LB.idx]; if (!it) return; lbImg.src = it.url; lbImg.alt = it.caption || ""; lbCap.textContent = (it.caption ? it.caption + " — " : "") + (it.src || "") + (it.page ? " p." + it.page : "") + "  (" + (LB.idx + 1) + "/" + LB.list.length + ")"; }
   function openLB(list, idx, back) { LB.list = list; LB.idx = idx; LB.back = back || document.activeElement; lb.classList.remove("hidden"); lbShow(); document.getElementById("lb-close").focus(); }
-  function closeLB() { lb.classList.add("hidden"); lbImg.src = ""; if (LB.back && LB.back.focus) LB.back.focus(); LB.back = null; }  // 焦點還給點開燈箱的元素
+  function closeLB() { lb.classList.add("hidden"); lbImg.removeAttribute("src"); if (LB.back && LB.back.focus) LB.back.focus(); LB.back = null; }  // 焦點還給點開燈箱的元素
   function lbStep(d) { if (!LB.list.length) return; LB.idx = (LB.idx + d + LB.list.length) % LB.list.length; lbShow(); }
   document.getElementById("lb-close").onclick = closeLB;
   document.getElementById("lb-prev").onclick = function () { lbStep(-1); };
